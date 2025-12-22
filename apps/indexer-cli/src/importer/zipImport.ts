@@ -23,8 +23,8 @@ export interface RawThread {
 
 export async function importZip(zipPath: string): Promise<{ runId: string }> {
   const runId = uuidv4();
-  const extractPath = path.join('.cache', 'run', runId);
-  const outputPath = path.join('.cache', 'raw_threads.json');
+  const extractPath = path.join(cacheDir(), 'run', runId);
+  const outputPath = path.join(cacheDir(), 'raw_threads.json');
 
   // Create directories if they don't exist
   await mkdir(extractPath, { recursive: true });

@@ -2,12 +2,13 @@ import fs from 'fs';
 import path from 'path';
 import { promisify } from 'util';
 import { RawThread } from '../importer/zipImport';
+import { threadVaultDir } from '../paths';
 
 const mkdir = promisify(fs.mkdir);
 const writeFile = promisify(fs.writeFile);
 
 export async function writeThreadCards(runId: string): Promise<void> {
-  const threadsPath = path.join('thread-vault', 'threads');
+  const threadsPath = path.join(threadVaultDir(), 'threads');
   await mkdir(threadsPath, { recursive: true });
 
   // TODO: Load actual raw_threads.json from .cache/run/${runId}/
@@ -35,8 +36,7 @@ updated: ${mockThread.last_active_at}
 ${mockThread.messages.map(msg => `### ${msg.role}\n${msg.text}`).join('\n\n')}
 `;
 
-  await writeFile(
-    path.join(threadsPath, `${mockThread.thread_uid}.md`),
-    content
-  );
+  const threadPath = path.join(threadsPath, `${mockThread.thread_uid}.md`);
+  await writeFile(threadPath, content);
+  console.log(`Wrote 1 thread card to ${threadsPath}`);
 }

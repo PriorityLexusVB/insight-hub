@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { promisify } from 'util';
 import { RawThread } from '../importer/zipImport';
+import { threadVaultDir, cacheDir } from '../paths';
 
 const mkdir = promisify(fs.mkdir);
 const writeFile = promisify(fs.writeFile);
@@ -10,10 +11,10 @@ const access = promisify(fs.access);
 
 export async function writeInbox(): Promise<void> {
   const today = new Date().toISOString().split('T')[0];
-  const inboxPath = path.join('thread-vault', 'inbox', `${today}.md`);
+  const inboxPath = path.join(threadVaultDir(), 'inbox', `${today}.md`);
   await mkdir(path.dirname(inboxPath), { recursive: true });
 
-  const rawThreadsPath = path.join('.cache', 'raw_threads.json');
+  const rawThreadsPath = path.join(cacheDir(), 'raw_threads.json');
 
   try {
     await access(rawThreadsPath, fs.constants.F_OK);
@@ -54,4 +55,5 @@ No imported threads found. Run: indexer import <zipPath>
   content += 'No tags available\n';
 
   await writeFile(inboxPath, content);
+  console.log(`Wrote inbox: ${inboxPath}`);
 }
