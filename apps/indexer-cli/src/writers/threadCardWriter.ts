@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { promisify } from 'util';
 import { RawThread } from '../importer/zipImport';
-import { threadVaultDir } from '../paths';
+import { threadsDir } from '../paths';
 
 const mkdir = promisify(fs.mkdir);
 const writeFile = promisify(fs.writeFile);
@@ -43,5 +43,5 @@ ${thread.messages.map(msg => `### ${msg.role}\n${msg.text}`).join('\n\n')}
     );
   }
 
-  console.log(`Wrote ${mockThreads.length} thread cards to ${threadsPath}`);
+  console.log(`Wrote ${mockThreads.length} thread cards to ${path.resolve(threadsPath)}`);
 }

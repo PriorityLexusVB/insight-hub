@@ -55,5 +55,5 @@ No imported threads found. Run: indexer import <zipPath>
   content += 'No tags available\n';
 
   await writeFile(inboxPath, content);
-  console.log(`Wrote inbox: ${inboxPath}`);
+  console.log(`Wrote inbox: ${path.resolve(inboxPath)}`);
 }

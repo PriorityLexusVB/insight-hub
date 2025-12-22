@@ -14,7 +14,7 @@ interface RoutingConfig {
 }
 
 export async function routeThreads(runId: string): Promise<void> {
-  const configPath = path.join('config', 'routing.yml');
+  const configPath = path.join(repoRoot(), 'config', 'routing.yml');
   const config = yaml.load(await readFile(configPath, 'utf8')) as RoutingConfig;
 
   // TODO: Implement actual routing logic
