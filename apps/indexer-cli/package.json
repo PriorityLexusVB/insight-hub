@@ -14,7 +14,8 @@
   "dependencies": {
     "commander": "^12.0.0",
     "js-yaml": "^4.1.0",
-    "unzipper": "^0.10.11"
+    "unzipper": "^0.10.11",
+    "uuid": "^13.0.0"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
