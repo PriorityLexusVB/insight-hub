@@ -1,0 +1,10 @@
+{
+  "name": "conversation-indexer",
+  "private": true,
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "indexer": "pnpm -C apps/indexer-cli indexer"
+  }
+}
