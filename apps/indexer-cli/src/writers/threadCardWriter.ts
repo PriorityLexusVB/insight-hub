@@ -12,7 +12,7 @@ export async function writeThreadCards(runId: string): Promise<void> {
   await mkdir(threadsPath, { recursive: true });
 
   // TODO: Load actual raw_threads.json from .cache/run/${runId}/
-  const mockThread: RawThread = {
+  const mockThreads: RawThread[] = [{
     thread_uid: 'mock-thread-1',
     title: 'Sample Conversation',
     created_at: new Date().toISOString(),
@@ -21,22 +21,27 @@ export async function writeThreadCards(runId: string): Promise<void> {
       { role: 'user', text: 'Hello, I need help with something' },
       { role: 'assistant', text: 'Sure, how can I help you today?' }
     ]
-  };
+  }];
 
-  const content = `---
-uid: ${mockThread.thread_uid}
-title: ${mockThread.title}
-created: ${mockThread.created_at}
-updated: ${mockThread.last_active_at}
+  for (const thread of mockThreads) {
+    const content = `---
+uid: ${thread.thread_uid}
+title: ${thread.title}
+created: ${thread.created_at}
+updated: ${thread.last_active_at}
 ---
 
-# ${mockThread.title}
+# ${thread.title}
 
 ## Messages
-${mockThread.messages.map(msg => `### ${msg.role}\n${msg.text}`).join('\n\n')}
+${thread.messages.map(msg => `### ${msg.role}\n${msg.text}`).join('\n\n')}
 `;
 
-  const threadPath = path.join(threadsPath, `${mockThread.thread_uid}.md`);
-  await writeFile(threadPath, content);
-  console.log(`Wrote 1 thread card to ${threadsPath}`);
+    await writeFile(
+      path.join(threadsPath, `${thread.thread_uid}.md`),
+      content
+    );
+  }
+
+  console.log(`Wrote ${mockThreads.length} thread cards to ${threadsPath}`);
 }
