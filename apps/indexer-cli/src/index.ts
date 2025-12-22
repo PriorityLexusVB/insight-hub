@@ -35,6 +35,13 @@ program.command('route')
 
 program.command('inbox')
   .description('Generate inbox view')
-  .action(() => console.log('Inbox command not implemented yet'));
+  .action(async () => {
+    try {
+      await writeInbox();
+    } catch (error) {
+      console.error('Error generating inbox:', error);
+      process.exit(1);
+    }
+  });
 
 program.parse(process.argv);
