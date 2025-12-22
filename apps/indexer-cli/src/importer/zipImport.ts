@@ -3,6 +3,7 @@ import path from 'path';
 import { promisify } from 'util';
 import unzipper from 'unzipper';
 import { v4 as uuidv4 } from 'uuid';
+import { runDir, rawThreadsPath, repoRoot } from '../paths';
 
 const mkdir = promisify(fs.mkdir);
 const writeFile = promisify(fs.writeFile);
