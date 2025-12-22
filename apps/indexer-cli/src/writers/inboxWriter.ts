@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { promisify } from 'util';
 import { RawThread } from '../importer/zipImport';
-import { threadVaultDir, cacheDir } from '../paths';
+import { inboxDir, rawThreadsPath } from '../paths';
 
 const mkdir = promisify(fs.mkdir);
 const writeFile = promisify(fs.writeFile);
@@ -11,10 +11,10 @@ const access = promisify(fs.access);
 
 export async function writeInbox(): Promise<void> {
   const today = new Date().toISOString().split('T')[0];
-  const inboxPath = path.join(threadVaultDir(), 'inbox', `${today}.md`);
-  await mkdir(path.dirname(inboxPath), { recursive: true });
+  await mkdir(inboxDir(), { recursive: true });
 
-  const rawThreadsPath = path.join(cacheDir(), 'raw_threads.json');
+  const fileName = `${today}.md`;
+  const inboxPath = path.join(inboxDir(), fileName);
 
   try {
     await access(rawThreadsPath, fs.constants.F_OK);

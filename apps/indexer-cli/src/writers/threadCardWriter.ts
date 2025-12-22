@@ -8,7 +8,7 @@ const mkdir = promisify(fs.mkdir);
 const writeFile = promisify(fs.writeFile);
 
 export async function writeThreadCards(runId: string): Promise<void> {
-  const threadsPath = path.join(threadVaultDir(), 'threads');
+  const threadsPath = threadsDir();
   await mkdir(threadsPath, { recursive: true });
 
   // TODO: Load actual raw_threads.json from .cache/run/${runId}/
