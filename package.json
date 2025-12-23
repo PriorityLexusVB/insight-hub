@@ -4,6 +4,11 @@
   "workspaces": [
     "apps/*"
   ],
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  },
   "scripts": {
     "indexer": "pnpm -C apps/indexer-cli indexer"
   }

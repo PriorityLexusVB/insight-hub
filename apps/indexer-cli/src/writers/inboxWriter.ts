@@ -15,9 +15,10 @@ export async function writeInbox(): Promise<void> {
 
   const fileName = `${today}.md`;
   const inboxPath = path.join(inboxDir(), fileName);
+  const rawPath = rawThreadsPath();
 
   try {
-    await access(rawThreadsPath, fs.constants.F_OK);
+    await access(rawPath, fs.constants.F_OK);
   } catch {
     const content = `# Director Inbox — ${today}
 
@@ -28,12 +29,13 @@ No imported threads found. Run: \`indexer import <zipPath>\`
     return;
   }
 
-  const rawData = await readFile(rawThreadsPath, "utf8");
+  const rawData = await readFile(rawPath, "utf8");
   const threads: RawThread[] = JSON.parse(rawData);
 
   const sortedThreads = [...threads].sort(
     (a, b) =>
-      new Date(b.last_active_at).getTime() - new Date(a.last_active_at).getTime()
+      new Date(b.last_active_at).getTime() -
+      new Date(a.last_active_at).getTime()
   );
 
   let content = `# Director Inbox — ${today}\n\n`;
@@ -41,7 +43,9 @@ No imported threads found. Run: \`indexer import <zipPath>\`
   // Newest threads section
   content += "## Newest Threads\n";
   sortedThreads.slice(0, 10).forEach((thread) => {
-    const safeTitle = (thread.title || "Untitled").replace(/\r?\n/g, " ").trim();
+    const safeTitle = (thread.title || "Untitled")
+      .replace(/\r?\n/g, " ")
+      .trim();
     // inbox files live under thread-vault/inbox, so thread cards are one level up in ../threads
     content += `- [${safeTitle}](../threads/${thread.thread_uid}.md)\n`;
   });

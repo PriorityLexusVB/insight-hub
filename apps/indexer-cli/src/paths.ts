@@ -17,7 +17,17 @@ export function cacheDir(): string {
   return path.join(repoRoot(), ".cache");
 }
 
-export const rawThreadsPath: string = path.join(cacheDir(), "raw_threads.json");
+export function runsDir(): string {
+  return path.join(cacheDir(), "runs");
+}
+
+export function runDir(runId: string): string {
+  return path.join(runsDir(), runId);
+}
+
+export function rawThreadsPath(): string {
+  return path.join(cacheDir(), "raw_threads.json");
+}
 
 export function threadVaultDir(): string {
   return path.join(repoRoot(), "thread-vault");

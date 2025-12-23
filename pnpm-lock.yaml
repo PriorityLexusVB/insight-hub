@@ -23,9 +23,15 @@ importers:
         specifier: ^13.0.0
         version: 13.0.0
     devDependencies:
+      '@types/js-yaml':
+        specifier: ^4.0.9
+        version: 4.0.9
       '@types/node':
         specifier: ^20.0.0
         version: 20.19.27
+      '@types/unzipper':
+        specifier: ^0.10.11
+        version: 0.10.11
       tsx:
         specifier: ^4.7.0
         version: 4.21.0
@@ -191,8 +197,14 @@ packages:
     cpu: [x64]
     os: [win32]
 
+  '@types/js-yaml@4.0.9':
+    resolution: {integrity: sha512-k4MGaQl5TGo/iipqb2UDG2UwjXziSWkh0uysQelTlJpX1qGlpUZYm8PnO4DxG1qBomtJUdYJ6qR6xdIah10JLg==}
+
   '@types/node@20.19.27':
     resolution: {integrity: sha512-N2clP5pJhB2YnZJ3PIHFk5RkygRX5WO/5f0WC08tp0wd+sv0rsJk3MqWn3CbNmT2J505a5336jaQj4ph1AdMug==}
+
+  '@types/unzipper@0.10.11':
+    resolution: {integrity: sha512-D25im2zjyMCcgL9ag6N46+wbtJBnXIr7SI4zHf9eJD2Dw2tEB5e+p5MYkrxKIVRscs5QV0EhtU9rgXSPx90oJg==}
 
   argparse@2.0.1:
     resolution: {integrity: sha512-8+9WqebbFzpX9OR+Wa6O29asIogeRMzcGtAINdpMHHyAg10f05aSFVBbcEqGf/PXw1EjAZ+q2/bEBg3DvurK3Q==}
@@ -431,9 +443,15 @@ snapshots:
   '@esbuild/win32-x64@0.27.2':
     optional: true
 
+  '@types/js-yaml@4.0.9': {}
+
   '@types/node@20.19.27':
     dependencies:
       undici-types: 6.21.0
+
+  '@types/unzipper@0.10.11':
+    dependencies:
+      '@types/node': 20.19.27
 
   argparse@2.0.1: {}
 
