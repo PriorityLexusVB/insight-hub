@@ -24,9 +24,28 @@ export interface RawThread {
 async function resolveZipPath(zipPath: string): Promise<string> {
   const normalized = zipPath.replace(/\\/g, "/");
 
+  // In bash, a backslash escapes the next character. So a user command like:
+  //   exports\chatgpt-export.zip
+  // can arrive here as:
+  //   exportschatgpt-export.zip
+  // If it looks like a missing separator after "exports", try to recover.
+  const exportsPrefix = "exports";
+  const maybeExportsConcat =
+    !path.isAbsolute(normalized) &&
+    !normalized.includes("/") &&
+    normalized.startsWith(exportsPrefix) &&
+    normalized.length > exportsPrefix.length;
+
+  const recoveredExportsPath = maybeExportsConcat
+    ? `${exportsPrefix}/${normalized.slice(exportsPrefix.length)}`
+    : null;
+
   const candidates = path.isAbsolute(normalized)
     ? [normalized]
     : [
+        ...(recoveredExportsPath
+          ? [path.resolve(repoRoot(), recoveredExportsPath)]
+          : []),
         path.resolve(repoRoot(), normalized),
         path.resolve(process.cwd(), normalized),
       ];

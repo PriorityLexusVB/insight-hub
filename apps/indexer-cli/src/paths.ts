@@ -44,3 +44,7 @@ export function threadsDir(): string {
 export function patchesDir(): string {
   return path.join(repoRoot(), "patches");
 }
+
+export function exportsDir(): string {
+  return path.join(repoRoot(), "exports");
+}

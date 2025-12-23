@@ -1,9 +1,12 @@
 #!/usr/bin/env node
 import { Command } from "commander";
+import fs from "fs";
+import path from "path";
 import { importZip } from "./importer/zipImport";
 import { writeThreadCards } from "./writers/threadCardWriter";
 import { writeInbox } from "./writers/inboxWriter";
 import { routeThreads } from "./router/router";
+import { exportsDir } from "./paths";
 
 const program = new Command();
 
@@ -29,6 +32,33 @@ program
   .action(async (zipPath) => {
     const { runId, resolvedZipPath } = await importZip(zipPath);
     console.log(`Imported zip. runId=${runId} zip=${resolvedZipPath}`);
+  });
+
+program
+  .command("list-exports")
+  .description("List zip files in the repo exports/ folder")
+  .action(async () => {
+    const dir = exportsDir();
+    let entries: string[];
+    try {
+      entries = await fs.promises.readdir(dir);
+    } catch {
+      console.log(`No exports directory found: ${path.resolve(dir)}`);
+      return;
+    }
+
+    const zips = entries
+      .filter((name) => name.toLowerCase().endsWith(".zip"))
+      .sort((a, b) => a.localeCompare(b));
+
+    if (zips.length === 0) {
+      console.log(`No .zip files found in: ${path.resolve(dir)}`);
+      return;
+    }
+
+    for (const name of zips) {
+      console.log(`exports/${name}`);
+    }
   });
 
 program
