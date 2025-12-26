@@ -7,6 +7,9 @@
   "pnpm": {
     "onlyBuiltDependencies": [
       "esbuild"
+    ],
+    "ignoredBuiltDependencies": [
+      "esbuild"
     ]
   },
   "scripts": {

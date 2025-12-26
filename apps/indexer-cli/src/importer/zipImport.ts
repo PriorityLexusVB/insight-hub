@@ -1,103 +1,244 @@
 import fs from "fs";
+import fsp from "fs/promises";
 import path from "path";
-import { promisify } from "util";
 import unzipper from "unzipper";
 import { v4 as uuidv4 } from "uuid";
-import { repoRoot, runDir, rawThreadsPath } from "../paths";
+import { cacheDir, rawThreadsPath, repoRoot } from "../paths";
 
-const mkdir = promisify(fs.mkdir);
-const writeFile = promisify(fs.writeFile);
-
-export interface Message {
-  role: string;
+export type RawMessage = {
+  role: "user" | "assistant" | "system" | "tool" | "unknown";
   text: string;
-}
+};
 
-export interface RawThread {
+export type RawThread = {
   thread_uid: string;
   title: string;
-  created_at: string;
-  last_active_at: string;
-  messages: Message[];
+  created_at: string; // ISO
+  last_active_at: string; // ISO
+  messages: RawMessage[];
+};
+
+type ExportConversation = {
+  id?: string;
+  title?: string;
+  create_time?: number; // seconds
+  update_time?: number; // seconds
+  current_node?: string;
+  mapping?: Record<
+    string,
+    {
+      id?: string;
+      parent?: string | null;
+      children?: string[];
+      message?: {
+        id?: string;
+        author?: { role?: string };
+        create_time?: number; // seconds
+        update_time?: number; // seconds
+        content?: any;
+      } | null;
+    }
+  >;
+};
+
+function isoFromSeconds(sec?: number): string {
+  if (!sec || Number.isNaN(sec)) return new Date().toISOString();
+  return new Date(sec * 1000).toISOString();
 }
 
-async function resolveZipPath(zipPath: string): Promise<string> {
-  const normalized = zipPath.replace(/\\/g, "/");
+function normalizeRole(roleRaw: any): RawMessage["role"] {
+  const r = String(roleRaw || "").toLowerCase();
+  if (r === "user") return "user";
+  if (r === "assistant") return "assistant";
+  if (r === "system") return "system";
+  if (r === "tool") return "tool";
+  return "unknown";
+}
 
-  // In bash, a backslash escapes the next character. So a user command like:
-  //   exports\chatgpt-export.zip
-  // can arrive here as:
-  //   exportschatgpt-export.zip
-  // If it looks like a missing separator after "exports", try to recover.
-  const exportsPrefix = "exports";
-  const maybeExportsConcat =
-    !path.isAbsolute(normalized) &&
-    !normalized.includes("/") &&
-    normalized.startsWith(exportsPrefix) &&
-    normalized.length > exportsPrefix.length;
+function extractTextFromContent(content: any): string {
+  if (!content) return "";
 
-  const recoveredExportsPath = maybeExportsConcat
-    ? `${exportsPrefix}/${normalized.slice(exportsPrefix.length)}`
-    : null;
+  // Most common: { content_type: "text", parts: ["..."] }
+  if (Array.isArray(content.parts)) {
+    const parts = content.parts
+      .map((p: any) => (typeof p === "string" ? p : ""))
+      .filter(Boolean);
+    if (parts.length) return parts.join("\n").trim();
+  }
 
-  const candidates = path.isAbsolute(normalized)
-    ? [normalized]
-    : [
-        ...(recoveredExportsPath
-          ? [path.resolve(repoRoot(), recoveredExportsPath)]
-          : []),
-        path.resolve(repoRoot(), normalized),
-        path.resolve(process.cwd(), normalized),
-      ];
+  // Sometimes: { text: "..." }
+  if (typeof content.text === "string") return content.text.trim();
 
-  for (const candidate of candidates) {
-    try {
-      await fs.promises.access(candidate, fs.constants.R_OK);
-      return candidate;
-    } catch {
-      // try next
+  // Sometimes: { result: "..." }
+  if (typeof content.result === "string") return content.result.trim();
+
+  // Sometimes content itself is a string
+  if (typeof content === "string") return content.trim();
+
+  // Fallback: try a few known fields
+  const maybe =
+    content?.value ??
+    content?.message ??
+    content?.data ??
+    content?.output ??
+    content?.content;
+  if (typeof maybe === "string") return maybe.trim();
+
+  return "";
+}
+
+function buildLinearPath(mapping: NonNullable<ExportConversation["mapping"]>, currentNode?: string): string[] {
+  if (!mapping || !currentNode || !mapping[currentNode]) return [];
+
+  const pathIds: string[] = [];
+  const seen = new Set<string>();
+
+  let nodeId: string | undefined = currentNode;
+
+  // Walk backwards using parent pointers
+  while (nodeId && mapping[nodeId] && !seen.has(nodeId)) {
+    seen.add(nodeId);
+    pathIds.push(nodeId);
+    const parent = mapping[nodeId]?.parent ?? null;
+    nodeId = parent ?? undefined;
+  }
+
+  // Reverse to chronological
+  return pathIds.reverse();
+}
+
+function parseConversationToRawThread(conv: ExportConversation): RawThread | null {
+  const mapping = conv.mapping || {};
+  const title = (conv.title || "Untitled").toString().trim();
+  const thread_uid = (conv.id || "").toString().trim() || `chatgpt-${uuidv4()}`;
+
+  const created_at = isoFromSeconds(conv.create_time);
+  const last_active_at = isoFromSeconds(conv.update_time);
+
+  const nodePath = buildLinearPath(mapping, conv.current_node);
+
+  const messages: RawMessage[] = [];
+  for (const nodeId of nodePath) {
+    const node = mapping[nodeId];
+    const msg = node?.message ?? null;
+    if (!msg) continue;
+
+    const role = normalizeRole(msg.author?.role);
+    const text = extractTextFromContent(msg.content);
+
+    if (!text) continue;
+
+    // Keep system messages if they contain meaningful text, otherwise skip
+    if (role === "system" && text.length < 5) continue;
+
+    messages.push({ role, text });
+  }
+
+  // If we got nothing via current_node path, try scanning all messages in mapping ordered by create_time
+  if (messages.length === 0) {
+    const all = Object.values(mapping)
+      .map((n) => n?.message)
+      .filter(Boolean) as NonNullable<ExportConversation["mapping"]>[string]["message"][];
+
+    const sorted = all.sort((a, b) => (a?.create_time || 0) - (b?.create_time || 0));
+    for (const m of sorted) {
+      const role = normalizeRole(m?.author?.role);
+      const text = extractTextFromContent(m?.content);
+      if (!text) continue;
+      if (role === "system" && text.length < 5) continue;
+      messages.push({ role, text });
     }
   }
 
+  // If still empty, skip
+  if (messages.length === 0) return null;
+
+  return {
+    thread_uid,
+    title,
+    created_at,
+    last_active_at,
+    messages,
+  };
+}
+
+function resolveZipPath(zipPathArg: string): string {
+  const arg = zipPathArg.trim();
+
+  // Absolute path?
+  if (path.isAbsolute(arg) && fs.existsSync(arg)) return arg;
+
+  // Relative to repo root
+  const repoCandidate = path.join(repoRoot(), arg);
+  if (fs.existsSync(repoCandidate)) return repoCandidate;
+
+  // Relative to current working directory
+  const cwdCandidate = path.resolve(process.cwd(), arg);
+  if (fs.existsSync(cwdCandidate)) return cwdCandidate;
+
   throw new Error(
-    `Zip not found: ${zipPath}\nTried:\n- ${candidates.join("\n- ")}`
+    `Zip not found: ${zipPathArg}\nTried:\n- ${repoCandidate}\n- ${cwdCandidate}`
   );
 }
 
-export async function importZip(
-  zipPath: string
-): Promise<{ runId: string; resolvedZipPath: string }> {
+async function extractZipToRunDir(zipFilePath: string, runId: string): Promise<string> {
+  const runsRoot = path.join(cacheDir(), "runs");
+  const runDir = path.join(runsRoot, runId);
+
+  await fsp.mkdir(runDir, { recursive: true });
+
+  await new Promise<void>((resolve, reject) => {
+    fs.createReadStream(zipFilePath)
+      .pipe(unzipper.Extract({ path: runDir }))
+      .on("close", () => resolve())
+      .on("error", (err: any) => reject(err));
+  });
+
+  return runDir;
+}
+
+async function readJsonFromRunDir(runDir: string, filename: string): Promise<any | null> {
+  const filePath = path.join(runDir, filename);
+  try {
+    const raw = await fsp.readFile(filePath, "utf8");
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+export async function importZip(zipPathArg: string): Promise<{ runId: string; zipPath: string; threadCount: number }> {
+  const zipPath = resolveZipPath(zipPathArg);
   const runId = uuidv4();
-  const extractPath = runDir(runId);
-  const outputPath = rawThreadsPath();
-  const resolvedZipPath = await resolveZipPath(zipPath);
 
-  // Create directories if they don't exist
-  await mkdir(extractPath, { recursive: true });
-  await mkdir(path.dirname(outputPath), { recursive: true });
+  await fsp.mkdir(cacheDir(), { recursive: true });
 
-  // Extract zip
-  await fs
-    .createReadStream(resolvedZipPath)
-    .pipe(unzipper.Extract({ path: extractPath }))
-    .promise();
+  const runDir = await extractZipToRunDir(zipPath, runId);
 
-  // TODO: Implement actual chat.html parsing
-  // For now, just create a mock raw_threads.json
-  const mockThreads: RawThread[] = [
-    {
-      thread_uid: "mock-thread-1",
-      title: "Sample Conversation",
-      created_at: new Date().toISOString(),
-      last_active_at: new Date().toISOString(),
-      messages: [
-        { role: "user", text: "Hello, I need help with something" },
-        { role: "assistant", text: "Sure, how can I help you today?" },
-      ],
-    },
-  ];
+  // Prefer structured JSON: conversations.json
+  const conversationsJson = await readJsonFromRunDir(runDir, "conversations.json");
 
-  await writeFile(outputPath, JSON.stringify(mockThreads, null, 2));
+  if (!Array.isArray(conversationsJson)) {
+    throw new Error(
+      `Expected conversations.json (array) in export, but did not find it or it was not an array.\n` +
+        `RunDir: ${runDir}\n` +
+        `This export zip DOES contain conversations.json, so if you're seeing this, JSON parsing failed.`
+    );
+  }
 
-  return { runId, resolvedZipPath };
+  const threads: RawThread[] = [];
+  for (const c of conversationsJson as ExportConversation[]) {
+    const t = parseConversationToRawThread(c);
+    if (t) threads.push(t);
+  }
+
+  // Write the raw threads cache (repo-root anchored via rawThreadsPath)
+  await fsp.mkdir(path.dirname(rawThreadsPath), { recursive: true });
+  await fsp.writeFile(rawThreadsPath, JSON.stringify(threads, null, 2), "utf8");
+
+  console.log(
+    `Imported zip. runId=${runId} zip=${zipPath}\nWrote ${threads.length} threads to ${rawThreadsPath}`
+  );
+
+  return { runId, zipPath, threadCount: threads.length };
 }
