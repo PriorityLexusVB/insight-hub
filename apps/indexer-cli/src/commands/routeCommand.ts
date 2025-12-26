@@ -1,92 +1,19 @@
 import fs from "fs/promises";
 import path from "path";
-import { threadsDir } from "../paths";
+import yaml from "js-yaml";
+import { rawThreadsPath, threadsDir } from "../paths";
 import { RawThread } from "../importer/zipImport";
-import { routeThread } from "../router/router";
-import { rawThreadsPath } from "../paths";
+import { routeFromMeta } from "../router/router";
 
-function parseFrontmatter(md: string): { frontmatter: string; body: string } {
-  const trimmed = md;
-  if (!trimmed.startsWith("---")) return { frontmatter: "", body: md };
+type Frontmatter = Record<string, any>;
 
-  const end = trimmed.indexOf("\n---", 3);
-  if (end === -1) return { frontmatter: "", body: md };
-
-  const fm = trimmed.slice(0, end + 4) + "\n";
-  const body = trimmed.slice(end + 5);
-  return { frontmatter: fm, body };
-}
-
-function replaceRouterBlock(frontmatter: string, routerYaml: string): string {
-  // Remove any existing router block lines starting with "router:"
-  const lines = frontmatter.split(/\r?\n/);
-  const out: string[] = [];
-
-  let skipping = false;
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-
-    if (line.startsWith("router:")) {
-      skipping = true;
-      continue;
-    }
-
-    // stop skipping when we hit a top-level key (no indent) or end marker
-    if (skipping) {
-      if (line.startsWith("---")) {
-        // re-insert router block before end marker
-        out.push(routerYaml.trimEnd());
-        out.push("---");
-        skipping = false;
-        continue;
-      }
-      if (/^[a-zA-Z0-9_\-]+:/.test(line) && !line.startsWith("  ")) {
-        // top-level key begins; insert router block before it
-        out.push(routerYaml.trimEnd());
-        skipping = false;
-        out.push(line);
-        continue;
-      }
-      // still skipping router section
-      continue;
-    }
-
-    out.push(line);
-  }
-
-  if (skipping) {
-    // frontmatter didn't end cleanly; append router
-    out.push(routerYaml.trimEnd());
-  }
-
-  return out.join("\n");
-}
-
-function buildRouterYaml(result: {
-  primary_home: { file: string; section: string };
-  confidence: number;
-  matched_app?: string;
-  matched_keywords?: string[];
-  needs_human: boolean;
-}): string {
-  const kw = (result.matched_keywords || [])
-    .map((k) => `"${k.replace(/"/g, '\\"')}"`)
-    .join(", ");
-  const matchedApp = result.matched_app
-    ? `"${result.matched_app.replace(/"/g, '\\"')}"`
-    : '""';
-
-  return [
-    "router:",
-    "  primary_home:",
-    `    file: "${result.primary_home.file}"`,
-    `    section: "${result.primary_home.section}"`,
-    `    confidence: ${result.confidence}`,
-    `  matched_app: ${matchedApp}`,
-    `  matched_keywords: [${kw}]`,
-    `  needs_human: ${result.needs_human}`,
-  ].join("\n");
+function splitFrontmatter(md: string): { fm: string; body: string } {
+  if (!md.startsWith("---")) return { fm: "", body: md };
+  const end = md.indexOf("\n---", 3);
+  if (end === -1) return { fm: "", body: md };
+  const fm = md.slice(3, end).trim();
+  const body = md.slice(end + 4);
+  return { fm, body };
 }
 
 export async function runRouteCommand(): Promise<void> {
@@ -103,20 +30,32 @@ export async function runRouteCommand(): Promise<void> {
     try {
       md = await fs.readFile(cardPath, "utf8");
     } catch {
-      // If card doesn't exist yet, skip
       continue;
     }
 
-    const { frontmatter, body } = parseFrontmatter(md);
-    if (!frontmatter) continue;
+    const { fm, body } = splitFrontmatter(md);
+    if (!fm) continue;
 
-    const routing = routeThread(t);
+    const fmObj = (yaml.load(fm) as Frontmatter) || {};
+    const apps: string[] = Array.isArray(fmObj.apps) ? fmObj.apps : [];
+    const tags: string[] = Array.isArray(fmObj.tags) ? fmObj.tags : [];
+
+    const fullText = t.messages.map((m) => `${m.role}: ${m.text}`).join("\n");
+    const routing = routeFromMeta({ title: t.title, fullText, apps, tags });
+
     if (routing.needs_human) needsHuman++;
 
-    const routerYaml = buildRouterYaml(routing);
-    const fm2 = replaceRouterBlock(frontmatter, routerYaml);
+    fmObj.router = {
+      primary_home: routing.primary_home,
+      confidence: routing.confidence,
+      matched_app: routing.matched_app ?? "",
+      matched_keywords: routing.matched_keywords ?? [],
+      needs_human: routing.needs_human,
+    };
 
-    const newMd = fm2 + body;
+    const newFm = yaml.dump(fmObj, { lineWidth: 120 }).trimEnd();
+    const newMd = `---\n${newFm}\n---\n${body.replace(/^\n/, "")}`;
+
     await fs.writeFile(cardPath, newMd, "utf8");
     updated++;
   }

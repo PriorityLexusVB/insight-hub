@@ -2,12 +2,8 @@ import fs from "fs";
 import path from "path";
 import yaml from "js-yaml";
 import { repoRoot } from "../paths";
-import { RawThread } from "../importer/zipImport";
 
-export type Home = {
-  file: string;
-  section: string;
-};
+export type Home = { file: string; section: string };
 
 export type RoutingResult = {
   primary_home: Home;
@@ -36,10 +32,7 @@ function loadRoutingConfig(): RoutingConfig {
   const p = path.join(repoRoot(), "config", "routing.yml");
   const raw = fs.readFileSync(p, "utf8");
   const cfg = yaml.load(raw) as RoutingConfig;
-
-  if (!cfg || !cfg.defaults || !cfg.apps) {
-    throw new Error(`Invalid routing.yml at ${p}`);
-  }
+  if (!cfg?.defaults || !cfg?.apps) throw new Error(`Invalid routing.yml at ${p}`);
   return cfg;
 }
 
@@ -58,10 +51,7 @@ function scoreKeywords(text: string, keywords: string[]): { score: number; match
 
     if (t.includes(kw)) {
       matches.push(kwRaw);
-      // base score
       score += 1;
-
-      // bonus for longer/more specific phrases
       if (kw.length >= 10) score += 0.5;
       if (kw.split(/\s+/).length >= 2) score += 0.5;
     }
@@ -70,10 +60,35 @@ function scoreKeywords(text: string, keywords: string[]): { score: number; match
   return { score, matches };
 }
 
-export function routeThread(thread: RawThread): RoutingResult {
+/**
+ * Route using canonical apps first (highest confidence), then fallback to keyword scoring.
+ */
+export function routeFromMeta(params: {
+  title: string;
+  fullText: string;
+  apps: string[];
+  tags: string[];
+}): RoutingResult {
   const cfg = loadRoutingConfig();
 
-  const text = `${thread.title}\n${thread.messages.map((m) => `${m.role}: ${m.text}`).join("\n")}`;
+  // Strong signal: canonical app present
+  for (const appName of params.apps || []) {
+    const appCfg = cfg.apps[appName];
+    if (appCfg) {
+      const confidence = 0.92;
+      const needs_human = confidence < cfg.defaults.require_human_if_confidence_below;
+      return {
+        primary_home: appCfg.primary_home,
+        confidence,
+        matched_app: appName,
+        matched_keywords: [],
+        needs_human,
+      };
+    }
+  }
+
+  // Fallback: keyword scoring
+  const text = `${params.title}\n${params.fullText}\n${(params.tags || []).join(" ")}`;
 
   let bestApp: string | undefined;
   let bestScore = 0;
@@ -90,12 +105,7 @@ export function routeThread(thread: RawThread): RoutingResult {
     }
   }
 
-  // Confidence: squash score into 0..1
-  // - 0 matches => 0
-  // - ~3-4 matches => ~0.7-0.8
-  // - >=6 matches => ~0.9+
-  const confidence = bestScore <= 0 ? 0 : Math.max(0.25, Math.min(0.95, bestScore / 6));
-
+  const confidence = bestScore <= 0 ? 0 : Math.max(0.25, Math.min(0.9, bestScore / 6));
   const primary_home = bestHome ?? cfg.defaults.primary_home;
   const needs_human = confidence < cfg.defaults.require_human_if_confidence_below;
 

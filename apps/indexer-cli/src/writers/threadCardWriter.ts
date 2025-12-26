@@ -12,6 +12,7 @@ const writeFile = promisify(fs.writeFile);
 type Extract = {
   domain: "dealership_ops" | "personal" | "infra_agents" | "research";
   apps: string[];
+  tools_used: string[];
   tags: string[];
   sensitivity: "safe_internal" | "contains_customer_pii" | "external_shareable";
   summary: string;
@@ -51,6 +52,7 @@ export async function writeThreadCards(params: {
         extract = {
           domain: h.domain,
           apps: h.apps,
+          tools_used: [],
           tags: h.tags,
           sensitivity: h.sensitivity,
           summary: h.summary,
@@ -59,13 +61,24 @@ export async function writeThreadCards(params: {
           next_actions: [],
         };
       } else {
-        extract = e;
+        extract = {
+          domain: e.domain,
+          apps: e.apps,
+          tools_used: e.tools_used,
+          tags: e.tags,
+          sensitivity: e.sensitivity,
+          summary: e.summary,
+          key_decisions: e.key_decisions,
+          open_questions: e.open_questions,
+          next_actions: e.next_actions,
+        };
       }
     } else {
       const h = heuristicSummarize(thread);
       extract = {
         domain: h.domain,
         apps: h.apps,
+        tools_used: [],
         tags: h.tags,
         sensitivity: h.sensitivity,
         summary: h.summary,
@@ -84,6 +97,7 @@ export async function writeThreadCards(params: {
       `status: active`,
       `domain: ${yamlEscape(extract.domain)}`,
       `apps: [${extract.apps.map(yamlEscape).join(", ")}]`,
+      `tools_used: [${extract.tools_used.map(yamlEscape).join(", ")}]`,
       `tags: [${extract.tags.map(yamlEscape).join(", ")}]`,
       `sensitivity: ${yamlEscape(extract.sensitivity)}`,
       `router:`,

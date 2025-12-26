@@ -10,10 +10,57 @@ export type ThreadExtract = {
   open_questions: string[];
   next_actions: Array<{ text: string; priority: "low" | "med" | "high" }>;
   domain: "dealership_ops" | "personal" | "infra_agents" | "research";
-  apps: string[];
+  apps: CanonicalApp[];
+  tools_used: string[];
   tags: string[];
   sensitivity: "safe_internal" | "contains_customer_pii" | "external_shareable";
 };
+
+const CANONICAL_APPS = [
+  "AutoPro",
+  "AFTERMARKET-MENU",
+  "BDC_Leaderboard",
+  "Vehicle-in-Need",
+  "Monthly Challenges",
+  "Clarity OS",
+  "Insight Hub",
+] as const;
+
+type CanonicalApp = (typeof CANONICAL_APPS)[number];
+
+function isCanonicalApp(s: string): s is CanonicalApp {
+  return (CANONICAL_APPS as readonly string[]).includes(s);
+}
+
+function uniq<T>(arr: T[]): T[] {
+  return Array.from(new Set(arr));
+}
+
+function clampText(s: string, maxLen: number): string {
+  const t = String(s ?? "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (t.length <= maxLen) return t;
+  return t.slice(0, maxLen - 1).trimEnd() + "…";
+}
+
+function asStringArray(v: unknown): string[] {
+  if (!Array.isArray(v)) return [];
+  return v
+    .map((x) => (typeof x === "string" ? x : String(x ?? "")))
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function stripCodeFences(s: string): string {
+  const t = (s || "").trim();
+  if (!t.includes("```")) return t;
+  // Prefer fenced json blocks if present
+  const m = t.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+  if (m && m[1]) return m[1].trim();
+  // Otherwise, remove all fence markers
+  return t.replace(/```/g, "").trim();
+}
 
 function redactPII(text: string): string {
   let t = text || "";
@@ -47,16 +94,15 @@ function threadToTranscript(thread: RawThread, maxChars: number): string {
 }
 
 function safeJsonParse(s: string): any {
-  // try direct parse
+  const cleaned = stripCodeFences(String(s ?? ""));
+
   try {
-    return JSON.parse(s);
+    return JSON.parse(cleaned);
   } catch {
-    // try to extract first {...} block
-    const start = s.indexOf("{");
-    const end = s.lastIndexOf("}");
+    const start = cleaned.indexOf("{");
+    const end = cleaned.lastIndexOf("}");
     if (start >= 0 && end > start) {
-      const sub = s.slice(start, end + 1);
-      return JSON.parse(sub);
+      return JSON.parse(cleaned.slice(start, end + 1));
     }
     throw new Error("LLM did not return valid JSON.");
   }
@@ -70,13 +116,76 @@ function validateExtract(obj: any): ThreadExtract {
     "next_actions",
     "domain",
     "apps",
+    "tools_used",
     "tags",
     "sensitivity",
   ];
   for (const k of required) {
     if (!(k in obj)) throw new Error(`LLM JSON missing key: ${k}`);
   }
-  return obj as ThreadExtract;
+
+  const domainRaw = String(obj.domain ?? "").trim();
+  const domain: ThreadExtract["domain"] =
+    domainRaw === "dealership_ops" ||
+    domainRaw === "personal" ||
+    domainRaw === "infra_agents" ||
+    domainRaw === "research"
+      ? domainRaw
+      : "research";
+
+  const sensitivityRaw = String(obj.sensitivity ?? "").trim();
+  const sensitivity: ThreadExtract["sensitivity"] =
+    sensitivityRaw === "safe_internal" ||
+    sensitivityRaw === "contains_customer_pii" ||
+    sensitivityRaw === "external_shareable"
+      ? sensitivityRaw
+      : "safe_internal";
+
+  const apps = uniq(asStringArray(obj.apps).filter(isCanonicalApp));
+  const toolsUsed = uniq(
+    asStringArray(obj.tools_used).map((s) => clampText(s, 60))
+  ).slice(0, 20);
+  const tags = uniq(asStringArray(obj.tags).map((s) => clampText(s, 32))).slice(
+    0,
+    20
+  );
+
+  const keyDecisions = uniq(
+    asStringArray(obj.key_decisions).map((s) => clampText(s, 220))
+  ).slice(0, 20);
+  const openQuestions = uniq(
+    asStringArray(obj.open_questions).map((s) => clampText(s, 220))
+  ).slice(0, 20);
+
+  const nextActionsRaw = Array.isArray(obj.next_actions)
+    ? obj.next_actions
+    : [];
+  const nextActions = nextActionsRaw
+    .map((a: any) => {
+      const text = clampText(String(a?.text ?? ""), 220);
+      const pRaw = String(a?.priority ?? "")
+        .toLowerCase()
+        .trim();
+      const priority: "low" | "med" | "high" =
+        pRaw === "low" || pRaw === "med" || pRaw === "high" ? pRaw : "med";
+      return text ? { text, priority } : null;
+    })
+    .filter(Boolean)
+    .slice(0, 5) as Array<{ text: string; priority: "low" | "med" | "high" }>;
+
+  const summary = clampText(String(obj.summary ?? ""), 1200);
+
+  return {
+    summary,
+    key_decisions: keyDecisions,
+    open_questions: openQuestions,
+    next_actions: nextActions,
+    domain,
+    apps,
+    tools_used: toolsUsed,
+    tags,
+    sensitivity,
+  };
 }
 
 export async function llmSummarizeThread(
@@ -100,30 +209,32 @@ export async function llmSummarizeThread(
 Return ONLY valid JSON. No markdown, no extra text.
 Be conservative. Prefer fewer tags/apps unless obvious.`;
 
-  const user = `Analyze the conversation transcript and extract:
-- summary: 100–200 words, plain language
-- key_decisions: list of bullets (may be empty)
-- open_questions: list of bullets (may be empty)
-- next_actions: up to 5 actions, each with {text, priority(low|med|high)}
-- domain: one of [dealership_ops, personal, infra_agents, research]
-- apps: array chosen from [AutoPro, AFTERMARKET-MENU, BDC_Leaderboard, Vehicle-in-Need, Monthly Challenges, Clarity OS, Insight Hub]
-- tags: 5–15 short tags
-- sensitivity: one of [safe_internal, contains_customer_pii, external_shareable]
+  const user = `Extract structured knowledge from this conversation.
+
+CANONICAL PROJECT APPS (apps field MUST ONLY use these if relevant):
+${CANONICAL_APPS.map((a) => `- ${a}`).join("\n")}
 
 Rules:
-- If transcript appears to include customer names/phones/VINs or identifying details, set sensitivity=contains_customer_pii.
-- If it’s clearly safe to share externally, set external_shareable, otherwise safe_internal.
-- If there are conflicts, add an open_question noting the conflict.
+- summary: 100–200 words, plain language
+- key_decisions: bullets (may be empty)
+- open_questions: bullets (may be empty)
+- next_actions: up to 5 actions, each with {text, priority(low|med|high)}
+- domain: one of [dealership_ops, personal, infra_agents, research]
+- apps: ONLY pick from CANONICAL PROJECT APPS. If none apply, return [].
+- tools_used: external tools/services mentioned (CapCut, Instagram, ElevenLabs, Twilio, Firebase, Supabase, etc.)
+- tags: 5–15 short tags
+- sensitivity: if it includes customer names/phones/VINs or identifying details, use contains_customer_pii.
 
-Return JSON with this exact schema:
+Return JSON with EXACT schema:
 {
-  "summary": "string",
+  "summary": "string (100-200 words)",
   "key_decisions": ["string"],
   "open_questions": ["string"],
   "next_actions": [{"text":"string","priority":"low|med|high"}],
   "domain": "dealership_ops|personal|infra_agents|research",
-  "apps": ["string"],
-  "tags": ["string"],
+  "apps": ["AutoPro|AFTERMARKET-MENU|BDC_Leaderboard|Vehicle-in-Need|Monthly Challenges|Clarity OS|Insight Hub"],
+  "tools_used": ["string"],
+  "tags": ["string (5-15)"],
   "sensitivity": "safe_internal|contains_customer_pii|external_shareable"
 }
 
