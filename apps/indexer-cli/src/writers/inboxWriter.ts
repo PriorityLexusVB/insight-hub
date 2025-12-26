@@ -1,81 +1,112 @@
-import fsp from "fs/promises";
+import fs from "fs/promises";
 import path from "path";
-import { inboxDir, threadsDir } from "../paths";
+import yaml from "js-yaml";
+import { RawThread } from "../importer/zipImport";
+import { inboxDir, rawThreadsPath, threadsDir, clustersCachePath } from "../paths";
 
-function todayISODate(): string {
-  return new Date().toISOString().slice(0, 10);
-}
+type Frontmatter = Record<string, any>;
 
-function stripYamlString(v: string): string {
-  const t = (v || "").trim();
-  if (
-    (t.startsWith('"') && t.endsWith('"')) ||
-    (t.startsWith("'") && t.endsWith("'"))
-  ) {
-    return t.slice(1, -1).trim();
+type ClusterCacheItem = {
+  cluster_id: string;
+  canonical_uid: string;
+  uids: string[];
+  apps: string[];
+  tags: string[];
+  size: number;
+};
+
+function splitFrontmatter(md: string): Frontmatter | null {
+  if (!md.startsWith("---")) return null;
+  const end = md.indexOf("\n---", 3);
+  if (end === -1) return null;
+  const fm = md.slice(3, end).trim();
+  try {
+    return (yaml.load(fm) as Frontmatter) || null;
+  } catch {
+    return null;
   }
-  return t;
-}
-
-function extractFrontmatterValue(md: string, key: string): string {
-  const lines = (md || "").split(/\r?\n/);
-  if (lines[0] !== "---") return "";
-  for (let i = 1; i < lines.length; i++) {
-    const line = lines[i];
-    if (line === "---") break;
-    const m = line.match(new RegExp(`^${key}:\\s*(.*)\\s*$`));
-    if (m) return stripYamlString(m[1] || "");
-  }
-  return "";
 }
 
 export async function writeInbox(): Promise<void> {
-  const date = todayISODate();
-  const outDir = inboxDir();
-  const outPath = path.join(outDir, `${date}.md`);
+  const today = new Date().toISOString().split("T")[0];
+  await fs.mkdir(inboxDir(), { recursive: true });
 
-  await fsp.mkdir(outDir, { recursive: true });
+  const inboxPath = path.join(inboxDir(), `${today}.md`);
 
-  let entries: string[] = [];
+  let threads: RawThread[] = [];
   try {
-    entries = await fsp.readdir(threadsDir());
+    const raw = await fs.readFile(rawThreadsPath(), "utf8");
+    threads = JSON.parse(raw);
   } catch {
-    entries = [];
-  }
+    const content = `# Director Inbox — ${today}
 
-  const threadFiles = entries.filter((f) => f.endsWith(".md"));
-
-  if (threadFiles.length === 0) {
-    const content = [
-      `# Director Inbox — ${date}`,
-      "",
-      "No imported threads found. Run: `indexer import <zipPath>`",
-      "",
-    ].join("\n");
-    await fsp.writeFile(outPath, content, "utf8");
+No imported threads found. Run: \`indexer import <zipPath>\`
+`;
+    await fs.writeFile(inboxPath, content, "utf8");
+    console.log(`Wrote inbox: ${path.resolve(inboxPath)}`);
     return;
   }
 
-  const items: string[] = [];
-  for (const file of threadFiles.sort()) {
-    const full = path.join(threadsDir(), file);
-    let md = "";
+  threads.sort((a, b) => new Date(b.last_active_at).getTime() - new Date(a.last_active_at).getTime());
+
+  // Needs Review based on router block in newest cards
+  const newest = threads.slice(0, 60);
+  const needsReview: Array<{ uid: string; title: string; confidence: number; app: string }> = [];
+
+  for (const t of newest) {
+    const cardPath = path.join(threadsDir(), `${t.thread_uid}.md`);
     try {
-      md = await fsp.readFile(full, "utf8");
+      const md = await fs.readFile(cardPath, "utf8");
+      const fm = splitFrontmatter(md);
+      if (!fm) continue;
+      const r = fm.router || {};
+      const conf = Number(r.confidence ?? 0);
+      const nh = Boolean(r.needs_human ?? false);
+      const app = String(r.matched_app ?? "");
+      if (nh || conf < 0.65) needsReview.push({ uid: t.thread_uid, title: t.title || "Untitled", confidence: conf, app });
     } catch {
-      continue;
+      // ignore
     }
-
-    const title =
-      extractFrontmatterValue(md, "title") || file.replace(/\.md$/, "");
-    const uid =
-      extractFrontmatterValue(md, "thread_uid") || file.replace(/\.md$/, "");
-
-    // from thread-vault/inbox -> ../threads/<uid>.md
-    const rel = `../threads/${uid}.md`;
-    items.push(`- [${title}](${rel})`);
   }
 
-  const content = [`# Director Inbox — ${date}`, "", ...items, ""].join("\n");
-  await fsp.writeFile(outPath, content, "utf8");
+  // Merge candidates (clusters.json)
+  let clusters: ClusterCacheItem[] = [];
+  try {
+    const raw = await fs.readFile(clustersCachePath(), "utf8");
+    clusters = JSON.parse(raw);
+  } catch {
+    clusters = [];
+  }
+  clusters.sort((a, b) => b.size - a.size);
+
+  let content = `# Director Inbox — ${today}\n\n`;
+
+  content += "## Newest Threads\n";
+  for (const t of threads.slice(0, 15)) {
+    const safeTitle = (t.title || "Untitled").replace(/\r?\n/g, " ").trim();
+    content += `- [${safeTitle}](../threads/${t.thread_uid}.md)\n`;
+  }
+
+  content += "\n## Needs Review (routing)\n";
+  if (needsReview.length === 0) {
+    content += "- (none)\n";
+  } else {
+    for (const x of needsReview.slice(0, 30)) {
+      const safeTitle = x.title.replace(/\r?\n/g, " ").trim();
+      content += `- [${safeTitle}](../threads/${x.uid}.md) — confidence=${x.confidence} app=${x.app || "?"}\n`;
+    }
+  }
+
+  content += "\n## Merge candidates (top clusters)\n";
+  if (clusters.length === 0) {
+    content += "- (none yet) Run: `indexer merge --max 500`\n";
+  } else {
+    for (const c of clusters.slice(0, 12)) {
+      const appStr = c.apps?.length ? c.apps.join(", ") : "(no app)";
+      content += `- [${c.cluster_id}](../clusters/${c.cluster_id}.md) — size=${c.size} canonical=${c.canonical_uid} apps=${appStr}\n`;
+    }
+  }
+
+  await fs.writeFile(inboxPath, content, "utf8");
+  console.log(`Wrote inbox: ${path.resolve(inboxPath)}`);
 }

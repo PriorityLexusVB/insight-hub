@@ -6,6 +6,7 @@ import { rawThreadsPath } from "./paths";
 import { writeThreadCards } from "./writers/threadCardWriter";
 import { llmSummarizeThread } from "./summarizer/llmSummarizer";
 import { runRouteCommand } from "./commands/routeCommand";
+import { runMergeCommand } from "./commands/mergeCommand";
 
 const program = new Command();
 
@@ -37,6 +38,15 @@ program
   });
 
 program
+  .command("merge")
+  .description("Cluster similar threads and mark duplicates")
+  .option("--max <n>", "limit number of newest threads to consider", (v) => parseInt(v, 10))
+  .option("--min-size <n>", "minimum cluster size (default 3)", (v) => parseInt(v, 10))
+  .action(async (opts: { max?: number; minSize?: number }) => {
+    await runMergeCommand({ max: opts.max, minSize: opts.minSize });
+  });
+
+program
   .command("inbox")
   .description("Generate inbox view")
   .action(async () => {
@@ -46,7 +56,7 @@ program
 program
   .command("run")
   .argument("<zipPath>", "Path to ChatGPT export zip")
-  .description("Full pipeline: import, summarize, route, inbox")
+  .description("Full pipeline: import, summarize, route, merge, inbox")
   .option("--mode <mode>", "heuristic|llm", "heuristic")
   .option("--max <n>", "limit number of threads (newest first)", (v) => parseInt(v, 10))
   .action(async (zipPath: string, opts: { mode: string; max?: number }) => {
@@ -54,15 +64,14 @@ program
     const mode = opts.mode === "llm" ? "llm" : "heuristic";
     await runSummarize({ mode, max: opts.max });
     await runRouteCommand();
+    await runMergeCommand({ max: opts.max });
     await writeInbox();
   });
 
 async function loadThreadsNewestFirst(): Promise<RawThread[]> {
   const raw = await fs.readFile(rawThreadsPath(), "utf8");
   const threads: RawThread[] = JSON.parse(raw);
-  return threads.sort(
-    (a, b) => new Date(b.last_active_at).getTime() - new Date(a.last_active_at).getTime()
-  );
+  return threads.sort((a, b) => new Date(b.last_active_at).getTime() - new Date(a.last_active_at).getTime());
 }
 
 async function runSummarize(params: { mode: "heuristic" | "llm"; max?: number }): Promise<void> {

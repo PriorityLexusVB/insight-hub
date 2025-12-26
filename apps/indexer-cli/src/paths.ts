@@ -19,6 +19,10 @@ export function summariesDir(): string {
   return path.join(cacheDir(), "summaries");
 }
 
+export function clustersCachePath(): string {
+  return path.join(cacheDir(), "clusters.json");
+}
+
 export function rawThreadsPath(): string {
   return path.join(cacheDir(), "raw_threads.json");
 }
@@ -33,6 +37,10 @@ export function inboxDir(): string {
 
 export function threadsDir(): string {
   return path.join(threadVaultDir(), "threads");
+}
+
+export function clustersDir(): string {
+  return path.join(threadVaultDir(), "clusters");
 }
 
 export function patchesDir(): string {
