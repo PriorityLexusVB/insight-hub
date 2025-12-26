@@ -1,8 +1,6 @@
 import path from "path";
 
 /**
- * Path helpers anchored to the repo root.
- *
  * This file lives at:
  *   <repoRoot>/apps/indexer-cli/src/paths.ts
  *
@@ -15,14 +13,6 @@ export function repoRoot(): string {
 
 export function cacheDir(): string {
   return path.join(repoRoot(), ".cache");
-}
-
-export function runsDir(): string {
-  return path.join(cacheDir(), "runs");
-}
-
-export function runDir(runId: string): string {
-  return path.join(runsDir(), runId);
 }
 
 export function rawThreadsPath(): string {
@@ -43,8 +33,4 @@ export function threadsDir(): string {
 
 export function patchesDir(): string {
   return path.join(repoRoot(), "patches");
-}
-
-export function exportsDir(): string {
-  return path.join(repoRoot(), "exports");
 }

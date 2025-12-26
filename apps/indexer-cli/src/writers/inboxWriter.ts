@@ -1,61 +1,36 @@
-import fs from "fs";
 import path from "path";
-import { promisify } from "util";
-import { RawThread } from "../importer/zipImport";
-import { inboxDir, rawThreadsPath } from "../paths";
 
-const mkdir = promisify(fs.mkdir);
-const writeFile = promisify(fs.writeFile);
-const readFile = promisify(fs.readFile);
-const access = promisify(fs.access);
+/**
+ * This file lives at:
+ *   <repoRoot>/apps/indexer-cli/src/paths.ts
+ *
+ * So repo root is:
+ *   path.resolve(__dirname, "../../..")
+ */
+export function repoRoot(): string {
+  return path.resolve(__dirname, "../../..");
+}
 
-export async function writeInbox(): Promise<void> {
-  const today = new Date().toISOString().split("T")[0];
-  await mkdir(inboxDir(), { recursive: true });
+export function cacheDir(): string {
+  return path.join(repoRoot(), ".cache");
+}
 
-  const fileName = `${today}.md`;
-  const inboxPath = path.join(inboxDir(), fileName);
-  const rawPath = rawThreadsPath();
+export function rawThreadsPath(): string {
+  return path.join(cacheDir(), "raw_threads.json");
+}
 
-  try {
-    await access(rawPath, fs.constants.F_OK);
-  } catch {
-    const content = `# Director Inbox — ${today}
+export function threadVaultDir(): string {
+  return path.join(repoRoot(), "thread-vault");
+}
 
-No imported threads found. Run: \`indexer import <zipPath>\`
-`;
-    await writeFile(inboxPath, content);
-    console.log(`Wrote inbox: ${path.resolve(inboxPath)}`);
-    return;
-  }
+export function inboxDir(): string {
+  return path.join(threadVaultDir(), "inbox");
+}
 
-  const rawData = await readFile(rawPath, "utf8");
-  const threads: RawThread[] = JSON.parse(rawData);
+export function threadsDir(): string {
+  return path.join(threadVaultDir(), "threads");
+}
 
-  const sortedThreads = [...threads].sort(
-    (a, b) =>
-      new Date(b.last_active_at).getTime() -
-      new Date(a.last_active_at).getTime()
-  );
-
-  let content = `# Director Inbox — ${today}\n\n`;
-
-  // Newest threads section
-  content += "## Newest Threads\n";
-  sortedThreads.slice(0, 10).forEach((thread) => {
-    const safeTitle = (thread.title || "Untitled")
-      .replace(/\r?\n/g, " ")
-      .trim();
-    // inbox files live under thread-vault/inbox, so thread cards are one level up in ../threads
-    content += `- [${safeTitle}](../threads/${thread.thread_uid}.md)\n`;
-  });
-
-  content += "\n## Needs Review\n";
-  content += "None today\n";
-
-  content += "\n## Top Tags\n";
-  content += "No tags available\n";
-
-  await writeFile(inboxPath, content);
-  console.log(`Wrote inbox: ${path.resolve(inboxPath)}`);
+export function patchesDir(): string {
+  return path.join(repoRoot(), "patches");
 }

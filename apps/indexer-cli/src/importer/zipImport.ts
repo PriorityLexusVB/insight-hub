@@ -58,7 +58,6 @@ function normalizeRole(roleRaw: any): RawMessage["role"] {
 function extractTextFromContent(content: any): string {
   if (!content) return "";
 
-  // Most common: { content_type: "text", parts: ["..."] }
   if (Array.isArray(content.parts)) {
     const parts = content.parts
       .map((p: any) => (typeof p === "string" ? p : ""))
@@ -66,28 +65,26 @@ function extractTextFromContent(content: any): string {
     if (parts.length) return parts.join("\n").trim();
   }
 
-  // Sometimes: { text: "..." }
   if (typeof content.text === "string") return content.text.trim();
-
-  // Sometimes: { result: "..." }
   if (typeof content.result === "string") return content.result.trim();
-
-  // Sometimes content itself is a string
   if (typeof content === "string") return content.trim();
 
-  // Fallback: try a few known fields
   const maybe =
     content?.value ??
     content?.message ??
     content?.data ??
     content?.output ??
     content?.content;
+
   if (typeof maybe === "string") return maybe.trim();
 
   return "";
 }
 
-function buildLinearPath(mapping: NonNullable<ExportConversation["mapping"]>, currentNode?: string): string[] {
+function buildLinearPath(
+  mapping: NonNullable<ExportConversation["mapping"]>,
+  currentNode?: string
+): string[] {
   if (!mapping || !currentNode || !mapping[currentNode]) return [];
 
   const pathIds: string[] = [];
@@ -95,7 +92,6 @@ function buildLinearPath(mapping: NonNullable<ExportConversation["mapping"]>, cu
 
   let nodeId: string | undefined = currentNode;
 
-  // Walk backwards using parent pointers
   while (nodeId && mapping[nodeId] && !seen.has(nodeId)) {
     seen.add(nodeId);
     pathIds.push(nodeId);
@@ -103,7 +99,6 @@ function buildLinearPath(mapping: NonNullable<ExportConversation["mapping"]>, cu
     nodeId = parent ?? undefined;
   }
 
-  // Reverse to chronological
   return pathIds.reverse();
 }
 
@@ -125,16 +120,13 @@ function parseConversationToRawThread(conv: ExportConversation): RawThread | nul
 
     const role = normalizeRole(msg.author?.role);
     const text = extractTextFromContent(msg.content);
-
     if (!text) continue;
-
-    // Keep system messages if they contain meaningful text, otherwise skip
     if (role === "system" && text.length < 5) continue;
 
     messages.push({ role, text });
   }
 
-  // If we got nothing via current_node path, try scanning all messages in mapping ordered by create_time
+  // Fallback: scan all messages sorted by create_time
   if (messages.length === 0) {
     const all = Object.values(mapping)
       .map((n) => n?.message)
@@ -150,7 +142,6 @@ function parseConversationToRawThread(conv: ExportConversation): RawThread | nul
     }
   }
 
-  // If still empty, skip
   if (messages.length === 0) return null;
 
   return {
@@ -165,20 +156,15 @@ function parseConversationToRawThread(conv: ExportConversation): RawThread | nul
 function resolveZipPath(zipPathArg: string): string {
   const arg = zipPathArg.trim();
 
-  // Absolute path?
   if (path.isAbsolute(arg) && fs.existsSync(arg)) return arg;
 
-  // Relative to repo root
   const repoCandidate = path.join(repoRoot(), arg);
   if (fs.existsSync(repoCandidate)) return repoCandidate;
 
-  // Relative to current working directory
   const cwdCandidate = path.resolve(process.cwd(), arg);
   if (fs.existsSync(cwdCandidate)) return cwdCandidate;
 
-  throw new Error(
-    `Zip not found: ${zipPathArg}\nTried:\n- ${repoCandidate}\n- ${cwdCandidate}`
-  );
+  throw new Error(`Zip not found: ${zipPathArg}\nTried:\n- ${repoCandidate}\n- ${cwdCandidate}`);
 }
 
 async function extractZipToRunDir(zipFilePath: string, runId: string): Promise<string> {
@@ -198,8 +184,8 @@ async function extractZipToRunDir(zipFilePath: string, runId: string): Promise<s
 }
 
 async function readJsonFromRunDir(runDir: string, filename: string): Promise<any | null> {
-  const filePath = path.join(runDir, filename);
   try {
+    const filePath = path.join(runDir, filename);
     const raw = await fsp.readFile(filePath, "utf8");
     return JSON.parse(raw);
   } catch {
@@ -207,7 +193,9 @@ async function readJsonFromRunDir(runDir: string, filename: string): Promise<any
   }
 }
 
-export async function importZip(zipPathArg: string): Promise<{ runId: string; zipPath: string; threadCount: number }> {
+export async function importZip(
+  zipPathArg: string
+): Promise<{ runId: string; zipPath: string; threadCount: number }> {
   const zipPath = resolveZipPath(zipPathArg);
   const runId = uuidv4();
 
@@ -215,14 +203,12 @@ export async function importZip(zipPathArg: string): Promise<{ runId: string; zi
 
   const runDir = await extractZipToRunDir(zipPath, runId);
 
-  // Prefer structured JSON: conversations.json
+  // Prefer structured JSON
   const conversationsJson = await readJsonFromRunDir(runDir, "conversations.json");
 
   if (!Array.isArray(conversationsJson)) {
     throw new Error(
-      `Expected conversations.json (array) in export, but did not find it or it was not an array.\n` +
-        `RunDir: ${runDir}\n` +
-        `This export zip DOES contain conversations.json, so if you're seeing this, JSON parsing failed.`
+      `Expected conversations.json (array) in export, but did not find it or it was not an array.\nRunDir: ${runDir}`
     );
   }
 
@@ -232,13 +218,11 @@ export async function importZip(zipPathArg: string): Promise<{ runId: string; zi
     if (t) threads.push(t);
   }
 
-  // Write the raw threads cache (repo-root anchored via rawThreadsPath)
-  await fsp.mkdir(path.dirname(rawThreadsPath), { recursive: true });
-  await fsp.writeFile(rawThreadsPath, JSON.stringify(threads, null, 2), "utf8");
+  await fsp.mkdir(path.dirname(rawThreadsPath()), { recursive: true });
+  await fsp.writeFile(rawThreadsPath(), JSON.stringify(threads, null, 2), "utf8");
 
-  console.log(
-    `Imported zip. runId=${runId} zip=${zipPath}\nWrote ${threads.length} threads to ${rawThreadsPath}`
-  );
+  console.log(`Imported zip. runId=${runId} zip=${zipPath}`);
+  console.log(`Wrote ${threads.length} threads to ${rawThreadsPath()}`);
 
   return { runId, zipPath, threadCount: threads.length };
 }
