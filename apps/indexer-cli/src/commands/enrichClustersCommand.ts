@@ -162,26 +162,26 @@ const TAG_DESTINATION_RULES: Array<{
 }> = [
   {
     keywords: [
-      "brochure",
-      "tri-fold",
-      "trifold",
-      "tri fold",
-      "marketing",
-      "showroom",
-      "visual design",
-      "design",
-    ],
-    destination: "docs/marketing/brochures.md",
-  },
-  {
-    keywords: [
       "cpo",
       "certified pre-owned",
       "warranty",
       "comparison",
+      "competitor",
       "showroom",
     ],
     destination: "docs/marketing/cpo-comparisons.md",
+  },
+  {
+    keywords: [
+      "brochure",
+      "tri-fold",
+      "trifold",
+      "tri fold",
+      "one-sheet",
+      "onesheet",
+      "flyer",
+    ],
+    destination: "docs/marketing/brochures.md",
   },
   {
     keywords: ["movie", "movies", "tracker", "watched", "rating"],
@@ -214,7 +214,8 @@ function pickClusterDestination(params: {
     params.extracts.flatMap((e) => e.tags || [])
   ).join(" ");
 
-  // 1) Tag-based mapping (explicit, deterministic)
+  // 1) Tag-based mapping (explicit, deterministic). These are cross-cutting docs
+  // and should override potentially-noisy app signals.
   for (const rule of TAG_DESTINATION_RULES) {
     if (containsAny(allTags, rule.keywords)) return rule.destination;
   }
@@ -297,6 +298,24 @@ function renderMergedSection(params: {
 function mergeSummaries(extracts: LlmExtract[]): string {
   // Sentence-level dedupe, cap ~10 sentences.
   const maxSentences = 10;
+  const maxChars = 900;
+
+  const finalize = (text: string): string => {
+    const t = (text || "").replace(/\s+/g, " ").trim();
+    if (!t) return t;
+    if (/[.!?…]$/.test(t)) return t;
+    const lastSpace = t.lastIndexOf(" ");
+    if (lastSpace >= 200) return t.slice(0, lastSpace).trimEnd() + "…";
+    return t + "…";
+  };
+
+  const trimToCap = (text: string): string => {
+    if (text.length <= maxChars) return text;
+    const cut = text.slice(0, maxChars);
+    const lastSpace = cut.lastIndexOf(" ");
+    const safe = (lastSpace >= 200 ? cut.slice(0, lastSpace) : cut).trimEnd();
+    return safe + "…";
+  };
 
   const seen = new Set<string>();
   const out: string[] = [];
@@ -324,11 +343,14 @@ function mergeSummaries(extracts: LlmExtract[]): string {
 
       seen.add(k);
       out.push(sent);
-      if (out.length >= maxSentences) return out.join(" ");
+      const joined = out.join(" ");
+      if (out.length >= maxSentences) return finalize(trimToCap(joined));
+      if (joined.length >= maxChars) return finalize(trimToCap(joined));
     }
   }
 
-  return out.join(" ");
+  const joined = out.join(" ");
+  return finalize(trimToCap(joined));
 }
 
 export async function enrichClusters(

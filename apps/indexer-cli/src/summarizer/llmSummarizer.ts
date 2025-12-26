@@ -10,9 +10,9 @@ export type ThreadExtract = {
   open_questions: string[];
   next_actions: Array<{ text: string; priority: "low" | "med" | "high" }>;
   domain: "dealership_ops" | "personal" | "infra_agents" | "research";
-  apps: string[];        // CANONICAL project apps only (max 2)
-  tools_used: string[];  // external tools/services mentioned
-  tags: string[];        // cleaned tags
+  apps: string[]; // CANONICAL project apps only (max 2)
+  tools_used: string[]; // external tools/services mentioned
+  tags: string[]; // cleaned tags
   sensitivity: "safe_internal" | "contains_customer_pii" | "external_shareable";
 };
 
@@ -60,8 +60,14 @@ const JUNK_TAG_EXACT = new Set(
 
 function redactPII(text: string): string {
   let t = text || "";
-  t = t.replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, "[REDACTED_EMAIL]");
-  t = t.replace(/\b(\+?1[-.\s]?)?(\(?\d{3}\)?[-.\s]?){1}\d{3}[-.\s]?\d{4}\b/g, "[REDACTED_PHONE]");
+  t = t.replace(
+    /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi,
+    "[REDACTED_EMAIL]"
+  );
+  t = t.replace(
+    /\b(\+?1[-.\s]?)?(\(?\d{3}\)?[-.\s]?){1}\d{3}[-.\s]?\d{4}\b/g,
+    "[REDACTED_PHONE]"
+  );
   t = t.replace(/\b[A-HJ-NPR-Z0-9]{17}\b/gi, "[REDACTED_VIN]");
   return t;
 }
@@ -72,9 +78,12 @@ function threadToTranscript(thread: RawThread, maxChars: number): string {
   parts.push(`CREATED: ${thread.created_at}`);
   parts.push(`LAST_ACTIVE: ${thread.last_active_at}`);
   parts.push("");
-  for (const m of thread.messages) parts.push(`${m.role.toUpperCase()}: ${m.text}`);
+  for (const m of thread.messages)
+    parts.push(`${m.role.toUpperCase()}: ${m.text}`);
   const full = redactPII(parts.join("\n"));
-  return full.length <= maxChars ? full : full.slice(0, maxChars) + "\n\n[TRUNCATED]\n";
+  return full.length <= maxChars
+    ? full
+    : full.slice(0, maxChars) + "\n\n[TRUNCATED]\n";
 }
 
 function safeJsonParse(s: string): any {
@@ -145,12 +154,17 @@ function validateExtract(obj: any): ThreadExtract {
 
   // apps: canonical only, max 2
   const appsIn = Array.isArray(obj.apps) ? obj.apps.map(String) : [];
-  const appsCanonical = appsIn.filter((a) => (CANONICAL_APPS as readonly string[]).includes(a));
+  const appsCanonical = appsIn.filter((a: string) =>
+    (CANONICAL_APPS as readonly string[]).includes(a)
+  );
   obj.apps = appsCanonical.slice(0, 2);
 
   // tools_used: short strings only
   const tools = Array.isArray(obj.tools_used) ? obj.tools_used : [];
-  obj.tools_used = tools.map((t: any) => String(t)).filter((t: string) => t.length > 1).slice(0, 20);
+  obj.tools_used = tools
+    .map((t: any) => String(t))
+    .filter((t: string) => t.length > 1)
+    .slice(0, 20);
 
   // tags: cleaned
   obj.tags = cleanTags(obj.tags);
@@ -158,7 +172,9 @@ function validateExtract(obj: any): ThreadExtract {
   return obj as ThreadExtract;
 }
 
-export async function llmSummarizeThread(thread: RawThread): Promise<ThreadExtract> {
+export async function llmSummarizeThread(
+  thread: RawThread
+): Promise<ThreadExtract> {
   await fs.mkdir(summariesDir(), { recursive: true });
 
   const cachePath = path.join(summariesDir(), `${thread.thread_uid}.json`);

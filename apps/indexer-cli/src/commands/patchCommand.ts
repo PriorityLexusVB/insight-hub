@@ -88,8 +88,38 @@ function titleFromPath(rel: string): string {
   return base.replace(/\.[^.]+$/, "");
 }
 
+function toTitleCase(raw: string): string {
+  const words = (raw || "")
+    .replace(/[-_]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .split(" ")
+    .filter(Boolean);
+
+  const ACRONYMS = new Set([
+    "cpo",
+    "hr",
+    "ai",
+    "api",
+    "mcp",
+    "vscode",
+    "bdc",
+    "vin",
+  ]);
+
+  return words
+    .map((w) => {
+      const lower = w.toLowerCase();
+      if (ACRONYMS.has(lower)) return lower.toUpperCase();
+      return w.charAt(0).toUpperCase() + w.slice(1).toLowerCase();
+    })
+    .join(" ");
+}
+
 function standardHeader(rel: string): string {
-  const title = titleFromPath(rel);
+  // Don't force markdown headers into .txt files.
+  if (/\.txt$/i.test(rel)) return "";
+  const title = toTitleCase(titleFromPath(rel));
   return `# ${title}\n\n`;
 }
 
