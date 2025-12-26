@@ -2,7 +2,13 @@ import fs from "fs/promises";
 import path from "path";
 import yaml from "js-yaml";
 import { RawThread } from "../importer/zipImport";
-import { inboxDir, rawThreadsPath, threadsDir, clustersCachePath, patchesDir } from "../paths";
+import {
+  inboxDir,
+  rawThreadsPath,
+  threadsDir,
+  clustersCachePath,
+  patchesDir,
+} from "../paths";
 
 type Frontmatter = Record<string, any>;
 
@@ -53,11 +59,20 @@ No imported threads found. Run: \`indexer import <zipPath>\`
     return;
   }
 
-  threads.sort((a, b) => new Date(b.last_active_at).getTime() - new Date(a.last_active_at).getTime());
+  threads.sort(
+    (a, b) =>
+      new Date(b.last_active_at).getTime() -
+      new Date(a.last_active_at).getTime()
+  );
 
   // Needs Review based on router block in newest cards
   const newest = threads.slice(0, 60);
-  const needsReview: Array<{ uid: string; title: string; confidence: number; app: string }> = [];
+  const needsReview: Array<{
+    uid: string;
+    title: string;
+    confidence: number;
+    app: string;
+  }> = [];
 
   for (const t of newest) {
     const cardPath = path.join(threadsDir(), `${t.thread_uid}.md`);
@@ -69,7 +84,13 @@ No imported threads found. Run: \`indexer import <zipPath>\`
       const conf = Number(r.confidence ?? 0);
       const nh = Boolean(r.needs_human ?? false);
       const app = String(r.matched_app ?? "");
-      if (nh || conf < 0.65) needsReview.push({ uid: t.thread_uid, title: t.title || "Untitled", confidence: conf, app });
+      if (nh || conf < 0.65)
+        needsReview.push({
+          uid: t.thread_uid,
+          title: t.title || "Untitled",
+          confidence: conf,
+          app,
+        });
     } catch {
       // ignore
     }
@@ -88,7 +109,10 @@ No imported threads found. Run: \`indexer import <zipPath>\`
   // Ready patches (patches/manifest.json)
   let patchManifest: PatchManifest | null = null;
   try {
-    const raw = await fs.readFile(path.join(patchesDir(), "manifest.json"), "utf8");
+    const raw = await fs.readFile(
+      path.join(patchesDir(), "manifest.json"),
+      "utf8"
+    );
     patchManifest = JSON.parse(raw) as PatchManifest;
   } catch {
     patchManifest = null;
@@ -108,7 +132,9 @@ No imported threads found. Run: \`indexer import <zipPath>\`
   } else {
     for (const x of needsReview.slice(0, 30)) {
       const safeTitle = x.title.replace(/\r?\n/g, " ").trim();
-      content += `- [${safeTitle}](../threads/${x.uid}.md) — confidence=${x.confidence} app=${x.app || "?"}\n`;
+      content += `- [${safeTitle}](../threads/${x.uid}.md) — confidence=${
+        x.confidence
+      } app=${x.app || "?"}\n`;
     }
   }
 
@@ -123,7 +149,11 @@ No imported threads found. Run: \`indexer import <zipPath>\`
   }
 
   content += "\n## Ready patches\n";
-  if (!patchManifest || !Array.isArray(patchManifest.items) || patchManifest.items.length === 0) {
+  if (
+    !patchManifest ||
+    !Array.isArray(patchManifest.items) ||
+    patchManifest.items.length === 0
+  ) {
     content += "- (none) Run: `indexer patch --max-clusters 10`\n";
   } else {
     const items = patchManifest.items.slice(0, 20);

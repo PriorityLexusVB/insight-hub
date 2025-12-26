@@ -30,9 +30,13 @@ function runIdNow(): string {
 function assertSafeRepoRelative(p: string): string {
   const s = (p || "").trim();
   if (!s) throw new Error("Empty destination path");
-  if (path.isAbsolute(s)) throw new Error(`Destination must be repo-relative, got absolute path: ${s}`);
+  if (path.isAbsolute(s))
+    throw new Error(
+      `Destination must be repo-relative, got absolute path: ${s}`
+    );
   const norm = s.replace(/\\/g, "/");
-  if (norm.includes("..")) throw new Error(`Destination must not contain '..': ${s}`);
+  if (norm.includes(".."))
+    throw new Error(`Destination must not contain '..': ${s}`);
   return norm;
 }
 
@@ -41,7 +45,10 @@ function parseSuggestedDestination(md: string): string | null {
   return m?.[1]?.trim() || null;
 }
 
-function extractMergedOutputForDestination(clusterId: string, md: string): string | null {
+function extractMergedOutputForDestination(
+  clusterId: string,
+  md: string
+): string | null {
   const marker = "## Merged Output";
   const idx = md.indexOf(marker);
   if (idx === -1) return null;
@@ -60,7 +67,11 @@ function extractMergedOutputForDestination(clusterId: string, md: string): strin
     const line = lines[i];
     if (/^\*\*Suggested destination:\*\*/.test(line)) continue;
     // skip a single blank line after the destination line if present
-    if (out[out.length - 1] === "" && line.trim() === "" && (i < 4 || /^\*\*Suggested destination:\*\*/.test(lines[i - 1] || ""))) {
+    if (
+      out[out.length - 1] === "" &&
+      line.trim() === "" &&
+      (i < 4 || /^\*\*Suggested destination:\*\*/.test(lines[i - 1] || ""))
+    ) {
       continue;
     }
     out.push(line);
@@ -72,7 +83,8 @@ function extractMergedOutputForDestination(clusterId: string, md: string): strin
 function titleFromPath(rel: string): string {
   const parts = rel.split("/").filter(Boolean);
   const base = parts[parts.length - 1] || rel;
-  if (/^index\.md$/i.test(base) && parts.length >= 2) return parts[parts.length - 2];
+  if (/^index\.md$/i.test(base) && parts.length >= 2)
+    return parts[parts.length - 2];
   return base.replace(/\.[^.]+$/, "");
 }
 
@@ -105,7 +117,9 @@ function buildUnifiedDiffAppend(params: {
   const oldNoTrail = old.endsWith("\n") ? old.slice(0, -1) : old;
   const oldLineCount = oldNoTrail ? oldNoTrail.split("\n").length : 0;
 
-  const hunkHeader = `@@ -${oldLineCount},0 +${oldLineCount + 1},${addedLines.length} @@`;
+  const hunkHeader = `@@ -${oldLineCount},0 +${oldLineCount + 1},${
+    addedLines.length
+  } @@`;
   return [
     `--- a/${rel}`,
     `+++ b/${rel}`,
@@ -115,7 +129,9 @@ function buildUnifiedDiffAppend(params: {
   ].join("\n");
 }
 
-export async function runPatchCommand(opts: { maxClusters?: number } = {}): Promise<void> {
+export async function runPatchCommand(
+  opts: { maxClusters?: number } = {}
+): Promise<void> {
   const runId = runIdNow();
   const runDir = path.join(patchesDir(), runId);
   await fs.mkdir(runDir, { recursive: true });
@@ -124,7 +140,10 @@ export async function runPatchCommand(opts: { maxClusters?: number } = {}): Prom
     .filter((f) => f.startsWith("CL-") && f.endsWith(".md"))
     .sort();
 
-  const max = typeof opts.maxClusters === "number" && opts.maxClusters > 0 ? opts.maxClusters : files.length;
+  const max =
+    typeof opts.maxClusters === "number" && opts.maxClusters > 0
+      ? opts.maxClusters
+      : files.length;
 
   const items: PatchManifestItem[] = [];
 
@@ -149,7 +168,8 @@ export async function runPatchCommand(opts: { maxClusters?: number } = {}): Prom
       oldText = null;
     }
 
-    const appendBlock = oldText === null ? standardHeader(destination) + merged : "\n" + merged;
+    const appendBlock =
+      oldText === null ? standardHeader(destination) + merged : "\n" + merged;
 
     const patch = buildUnifiedDiffAppend({
       relPath: destination,

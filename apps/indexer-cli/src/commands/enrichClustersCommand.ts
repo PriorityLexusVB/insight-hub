@@ -56,7 +56,9 @@ function uniqStrings(items: string[]): string[] {
   return out;
 }
 
-function uniqActions(actions: Array<{ text: string; priority: string }>): Array<{ text: string; priority: string }> {
+function uniqActions(
+  actions: Array<{ text: string; priority: string }>
+): Array<{ text: string; priority: string }> {
   const seen = new Set<string>();
   const out: Array<{ text: string; priority: string }> = [];
   for (const a of actions) {
@@ -78,11 +80,14 @@ async function loadRoutingConfig(): Promise<RoutingConfig> {
   const p = path.join(repoRoot(), "config", "routing.yml");
   const raw = await fs.readFile(p, "utf8");
   const cfg = yaml.load(raw) as RoutingConfig;
-  if (!cfg?.defaults?.primary_home?.file || !cfg?.apps) throw new Error(`Invalid routing.yml at ${p}`);
+  if (!cfg?.defaults?.primary_home?.file || !cfg?.apps)
+    throw new Error(`Invalid routing.yml at ${p}`);
   return cfg;
 }
 
-async function readThreadFrontmatter(threadUid: string): Promise<ThreadFrontmatter | null> {
+async function readThreadFrontmatter(
+  threadUid: string
+): Promise<ThreadFrontmatter | null> {
   const p = path.join(threadsDir(), `${threadUid}.md`);
   const md = await fs.readFile(p, "utf8");
   if (!md.startsWith("---")) return null;
@@ -98,7 +103,9 @@ async function readClusterMeta(clusterId: string): Promise<ClusterMeta> {
   const p = path.join(clustersDir(), `${clusterId}.md`);
   const md = await fs.readFile(p, "utf8");
 
-  const uidMatches = Array.from(md.matchAll(/\(\.\.\/threads\/([a-f0-9\-]+)\.md\)/gi)).map((m) => m[1]);
+  const uidMatches = Array.from(
+    md.matchAll(/\(\.\.\/threads\/([a-f0-9\-]+)\.md\)/gi)
+  ).map((m) => m[1]);
   const uids = Array.from(new Set(uidMatches));
 
   // canonical line: **Canonical:** `...`
@@ -149,13 +156,31 @@ function containsAny(text: string, keywords: string[]): boolean {
   return false;
 }
 
-const TAG_DESTINATION_RULES: Array<{ keywords: string[]; destination: string }> = [
+const TAG_DESTINATION_RULES: Array<{
+  keywords: string[];
+  destination: string;
+}> = [
   {
-    keywords: ["brochure", "tri-fold", "trifold", "tri fold", "marketing", "showroom", "visual design", "design"],
+    keywords: [
+      "brochure",
+      "tri-fold",
+      "trifold",
+      "tri fold",
+      "marketing",
+      "showroom",
+      "visual design",
+      "design",
+    ],
     destination: "docs/marketing/brochures.md",
   },
   {
-    keywords: ["cpo", "certified pre-owned", "warranty", "comparison", "showroom"],
+    keywords: [
+      "cpo",
+      "certified pre-owned",
+      "warranty",
+      "comparison",
+      "showroom",
+    ],
     destination: "docs/marketing/cpo-comparisons.md",
   },
   {
@@ -163,7 +188,15 @@ const TAG_DESTINATION_RULES: Array<{ keywords: string[]; destination: string }> 
     destination: "docs/movies/tracker.md",
   },
   {
-    keywords: ["infra", "dev", "tools", "github", "supabase", "vscode", "visual studio code"],
+    keywords: [
+      "infra",
+      "dev",
+      "tools",
+      "github",
+      "supabase",
+      "vscode",
+      "visual studio code",
+    ],
     destination: "docs/infra/index.md",
   },
   {
@@ -177,7 +210,9 @@ function pickClusterDestination(params: {
   meta: ClusterMeta;
   extracts: LlmExtract[];
 }): string {
-  const allTags = uniqStrings(params.extracts.flatMap((e) => e.tags || [])).join(" ");
+  const allTags = uniqStrings(
+    params.extracts.flatMap((e) => e.tags || [])
+  ).join(" ");
 
   // 1) Tag-based mapping (explicit, deterministic)
   for (const rule of TAG_DESTINATION_RULES) {
@@ -230,10 +265,18 @@ function renderMergedSection(params: {
   lines.push(params.mergedSummary.trim() || "(none)");
   lines.push("");
   lines.push("### Consolidated decisions");
-  lines.push(params.decisions.length ? params.decisions.map((d) => `- ${d}`).join("\n") : "- (none)");
+  lines.push(
+    params.decisions.length
+      ? params.decisions.map((d) => `- ${d}`).join("\n")
+      : "- (none)"
+  );
   lines.push("");
   lines.push("### Consolidated open questions");
-  lines.push(params.questions.length ? params.questions.map((q) => `- ${q}`).join("\n") : "- (none)");
+  lines.push(
+    params.questions.length
+      ? params.questions.map((q) => `- ${q}`).join("\n")
+      : "- (none)"
+  );
   lines.push("");
   lines.push("### Consolidated next actions");
   if (params.actions.length) {
@@ -244,7 +287,9 @@ function renderMergedSection(params: {
   lines.push("");
   lines.push("### Suggested cleanup");
   lines.push("- Keep the canonical thread as the main reference.");
-  lines.push("- Archive or mark the other threads as duplicates after you confirm no unique decisions remain.");
+  lines.push(
+    "- Archive or mark the other threads as duplicates after you confirm no unique decisions remain."
+  );
   lines.push("");
   return lines.join("\n");
 }
@@ -286,12 +331,17 @@ function mergeSummaries(extracts: LlmExtract[]): string {
   return out.join(" ");
 }
 
-export async function enrichClusters(opts: { maxClusters?: number } = {}): Promise<void> {
+export async function enrichClusters(
+  opts: { maxClusters?: number } = {}
+): Promise<void> {
   const files = (await fs.readdir(clustersDir()))
     .filter((f) => f.startsWith("CL-") && f.endsWith(".md"))
     .sort();
 
-  const maxClusters = typeof opts.maxClusters === "number" && opts.maxClusters > 0 ? opts.maxClusters : files.length;
+  const maxClusters =
+    typeof opts.maxClusters === "number" && opts.maxClusters > 0
+      ? opts.maxClusters
+      : files.length;
 
   let processed = 0;
 
@@ -314,7 +364,9 @@ export async function enrichClusters(opts: { maxClusters?: number } = {}): Promi
     if (extracts.length === 0) continue;
 
     // Put canonical first if we have it
-    extracts.sort((a, b) => (a.uid === meta.canonical_uid ? -1 : b.uid === meta.canonical_uid ? 1 : 0));
+    extracts.sort((a, b) =>
+      a.uid === meta.canonical_uid ? -1 : b.uid === meta.canonical_uid ? 1 : 0
+    );
 
     const destination = pickClusterDestination({
       cfg: routingCfg,
@@ -324,10 +376,21 @@ export async function enrichClusters(opts: { maxClusters?: number } = {}): Promi
 
     const mergedSummary = mergeSummaries(extracts.map((x) => x.e));
 
-    const decisions = uniqStrings(extracts.flatMap((x) => x.e.key_decisions || [])).slice(0, 20);
-    const questions = uniqStrings(extracts.flatMap((x) => x.e.open_questions || [])).slice(0, 20);
+    const decisions = uniqStrings(
+      extracts.flatMap((x) => x.e.key_decisions || [])
+    ).slice(0, 20);
+    const questions = uniqStrings(
+      extracts.flatMap((x) => x.e.open_questions || [])
+    ).slice(0, 20);
     const actions = sortByPriority(
-      uniqActions(extracts.flatMap((x) => (x.e.next_actions || []).map((a) => ({ text: a.text, priority: a.priority }))))
+      uniqActions(
+        extracts.flatMap((x) =>
+          (x.e.next_actions || []).map((a) => ({
+            text: a.text,
+            priority: a.priority,
+          }))
+        )
+      )
     ).slice(0, 20);
 
     // Append merged section to cluster markdown (replace if already exists)
@@ -335,7 +398,9 @@ export async function enrichClusters(opts: { maxClusters?: number } = {}): Promi
     const md = await fs.readFile(clusterPath, "utf8");
 
     const marker = "## Merged Output";
-    const base = md.includes(marker) ? md.split(marker)[0].trimEnd() : md.trimEnd();
+    const base = md.includes(marker)
+      ? md.split(marker)[0].trimEnd()
+      : md.trimEnd();
 
     const mergedSection = renderMergedSection({
       destination,
