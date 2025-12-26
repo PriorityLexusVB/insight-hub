@@ -1,35 +1,114 @@
-AutoPro:
-  keywords:
-    - "autopro"
-    - "vehicle"
-    - "inventory"
+version: 1
 
-AFTERMARKET-MENU:
-  keywords:
-    - "aftermarket"
-    - "accessories"
-    - "parts"
+defaults:
+  primary_home:
+    file: "GLOBAL_APP_CREATION_MASTER_NOTES_v4.txt"
+    section: "Thread Inbox"
+  require_human_if_confidence_below: 0.65
 
-BDC_Leaderboard:
-  keywords:
-    - "bdc"
-    - "lead"
-    - "sales"
+apps:
+  AutoPro:
+    keywords:
+      - autopro
+      - auto pro
+      - sales tracker
+      - turbo
+      - gamification
+      - xp
+      - perks
+      - director
+      - director's cut
+    primary_home:
+      file: "docs/autopro/INDEX.md"
+      section: "Overview"
 
-Vehicle-in-Need:
-  keywords:
-    - "vin"
-    - "need"
-    - "repair"
+  AFTERMARKET-MENU:
+    keywords:
+      - aftermarket-menu
+      - aftermarket menu
+      - menu
+      - packages
+      - product penetration
+      - pricing
+      - objection
+      - tire and wheel
+      - pdr
+      - warranty
+    primary_home:
+      file: "docs/aftermarket-menu/INDEX.md"
+      section: "Overview"
 
-Monthly Challenges:
-  keywords:
-    - "challenge"
-    - "monthly"
-    - "goal"
+  BDC_Leaderboard:
+    keywords:
+      - bdc
+      - leaderboard
+      - appointment
+      - calldrip
+      - call drip
+      - inbound
+      - outbound
+      - show
+      - no show
+      - script
+      - call jukebox
+      - call training
+    primary_home:
+      file: "docs/bdc/INDEX.md"
+      section: "Overview"
 
-Clarity OS:
-  keywords:
-    - "clarity"
-    - "os"
-    - "system"
+  Vehicle-in-Need:
+    keywords:
+      - vehicle in need
+      - vehicles in need
+      - vin
+      - locate
+      - dealer trade
+      - swap
+      - incoming
+      - inventory
+    primary_home:
+      file: "docs/vehicle-in-need/INDEX.md"
+      section: "Overview"
+
+  Monthly Challenges:
+    keywords:
+      - monthly challenge
+      - challenge
+      - admin challenge
+      - mystery mario
+      - mario blocks
+      - pvp
+      - versus
+      - duel
+      - prize
+      - leaderboard tv
+    primary_home:
+      file: "docs/challenges/INDEX.md"
+      section: "Overview"
+
+  Clarity OS:
+    keywords:
+      - clarity os
+      - clarity
+      - journal
+      - routine
+      - habits
+      - mood
+      - sleep
+      - kids
+      - family
+    primary_home:
+      file: "docs/clarity-os/INDEX.md"
+      section: "Overview"
+
+  Insight Hub:
+    keywords:
+      - insight hub
+      - director panel
+      - thread librarian
+      - conversation indexer
+      - router
+      - thread vault
+    primary_home:
+      file: "docs/insight-hub/INDEX.md"
+      section: "Overview"

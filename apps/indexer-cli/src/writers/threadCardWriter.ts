@@ -2,16 +2,27 @@ import fs from "fs";
 import path from "path";
 import { promisify } from "util";
 import { RawThread } from "../importer/zipImport";
-import { heuristicSummarize } from "../summarizer/heuristicSummarizer";
 import { threadsDir } from "../paths";
+import { heuristicSummarize } from "../summarizer/heuristicSummarizer";
+import type { ThreadExtract as LlmExtract } from "../summarizer/llmSummarizer";
 
 const mkdir = promisify(fs.mkdir);
 const writeFile = promisify(fs.writeFile);
 
+type Extract = {
+  domain: "dealership_ops" | "personal" | "infra_agents" | "research";
+  apps: string[];
+  tags: string[];
+  sensitivity: "safe_internal" | "contains_customer_pii" | "external_shareable";
+  summary: string;
+  key_decisions: string[];
+  open_questions: string[];
+  next_actions: { text: string; priority: "low" | "med" | "high" }[];
+};
+
 function yamlEscape(s: string): string {
   const t = (s ?? "").replace(/\r?\n/g, " ").trim();
-  // quote if needed
-  if (/[:\[\]\{\}\#\&\*\!\|\>\'\"]/.test(t)) {
+  if (/[:\[\]\{\}\#\&\*\!\|\>\'"]/.test(t)) {
     return `"${t.replace(/"/g, '\\"')}"`;
   }
   return t;
@@ -22,11 +33,47 @@ function mdList(items: string[]): string {
   return items.map((x) => `- ${x}`).join("\n") + "\n";
 }
 
-export async function writeThreadCards(threads: RawThread[]): Promise<void> {
+export async function writeThreadCards(params: {
+  threads: RawThread[];
+  mode: "heuristic" | "llm";
+  llmExtracts?: Map<string, LlmExtract>;
+}): Promise<void> {
   await mkdir(threadsDir(), { recursive: true });
 
-  for (const thread of threads) {
-    const extract = heuristicSummarize(thread);
+  for (const thread of params.threads) {
+    let extract: Extract;
+
+    if (params.mode === "llm") {
+      const e = params.llmExtracts?.get(thread.thread_uid);
+      if (!e) {
+        // fallback to heuristic if missing
+        const h = heuristicSummarize(thread);
+        extract = {
+          domain: h.domain,
+          apps: h.apps,
+          tags: h.tags,
+          sensitivity: h.sensitivity,
+          summary: h.summary,
+          key_decisions: [],
+          open_questions: h.open_questions,
+          next_actions: [],
+        };
+      } else {
+        extract = e;
+      }
+    } else {
+      const h = heuristicSummarize(thread);
+      extract = {
+        domain: h.domain,
+        apps: h.apps,
+        tags: h.tags,
+        sensitivity: h.sensitivity,
+        summary: h.summary,
+        key_decisions: [],
+        open_questions: h.open_questions,
+        next_actions: [],
+      };
+    }
 
     const frontmatter = [
       "---",
@@ -41,8 +88,8 @@ export async function writeThreadCards(threads: RawThread[]): Promise<void> {
       `sensitivity: ${yamlEscape(extract.sensitivity)}`,
       `router:`,
       `  primary_home:`,
-      `    file: ${yamlEscape("thread-vault/UNSORTED.md")}`,
-      `    section: ${yamlEscape("Inbox")}`,
+      `    file: ${yamlEscape("GLOBAL_APP_CREATION_MASTER_NOTES_v4.txt")}`,
+      `    section: ${yamlEscape("Thread Inbox")}`,
       `    confidence: 0.0`,
       `  secondary_homes: []`,
       `merge:`,
@@ -54,7 +101,7 @@ export async function writeThreadCards(threads: RawThread[]): Promise<void> {
 
     const body = [
       "## Summary",
-      extract.summary,
+      extract.summary || "(none)",
       "",
       "## Key decisions",
       mdList(extract.key_decisions),
@@ -62,7 +109,9 @@ export async function writeThreadCards(threads: RawThread[]): Promise<void> {
       mdList(extract.open_questions),
       "## Next actions",
       extract.next_actions.length
-        ? extract.next_actions.map((a, i) => `${i + 1}) [${a.priority}] ${a.text}`).join("\n") + "\n"
+        ? extract.next_actions
+            .map((a, i) => `${i + 1}) [${a.priority}] ${a.text}`)
+            .join("\n") + "\n"
         : "1) (none)\n",
       "",
     ].join("\n");
@@ -71,5 +120,9 @@ export async function writeThreadCards(threads: RawThread[]): Promise<void> {
     await writeFile(outPath, frontmatter + body, "utf8");
   }
 
-  console.log(`Wrote ${threads.length} thread cards to ${path.resolve(threadsDir())}`);
+  console.log(
+    `Wrote ${params.threads.length} thread cards to ${path.resolve(
+      threadsDir()
+    )}`
+  );
 }

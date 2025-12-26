@@ -13,6 +13,9 @@ importers:
       commander:
         specifier: ^12.0.0
         version: 12.1.0
+      dotenv:
+        specifier: ^16.4.5
+        version: 16.6.1
       js-yaml:
         specifier: ^4.1.0
         version: 4.1.1
@@ -245,6 +248,10 @@ packages:
 
   core-util-is@1.0.3:
     resolution: {integrity: sha512-ZQBvi1DcpJ4GDqanjucZ2Hj3wEO5pZDS89BWbkcrvdxksJorwUDDZamX9ldFkp9aw2lmBDLgkObEA4DWNJ9FYQ==}
+
+  dotenv@16.6.1:
+    resolution: {integrity: sha512-uBq4egWHTcTt33a72vpSG0z3HnPuIl6NqYcTrKEg2azoEyl2hpW0zqlxysq2pK9HlDIHyHyakeYaYnSAwd8bow==}
+    engines: {node: '>=12'}
 
   duplexer2@0.1.4:
     resolution: {integrity: sha512-asLFVfWWtJ90ZyOUHMqk7/S2w2guQKxUI2itj3d92ADHhxUSbCMGi1f1cBcJ7xM1To+pE/Khbwo1yuNbMEPKeA==}
@@ -484,6 +491,8 @@ snapshots:
   concat-map@0.0.1: {}
 
   core-util-is@1.0.3: {}
+
+  dotenv@16.6.1: {}
 
   duplexer2@0.1.4:
     dependencies:

@@ -1,10 +1,11 @@
+import "dotenv/config";
 import { Command } from "commander";
-import { importZip } from "./importer/zipImport";
-import { writeInbox } from "./writers/inboxWriter";
-import { writeThreadCards } from "./writers/threadCardWriter";
 import fs from "fs/promises";
+import { importZip, RawThread } from "./importer/zipImport";
+import { writeInbox } from "./writers/inboxWriter";
 import { rawThreadsPath } from "./paths";
-import { RawThread } from "./importer/zipImport";
+import { writeThreadCards } from "./writers/threadCardWriter";
+import { llmSummarizeThread } from "./summarizer/llmSummarizer";
 
 const program = new Command();
 
@@ -19,8 +20,7 @@ program
   .description("Full pipeline: import, summarize, route, inbox")
   .action(async (zipPath: string) => {
     await importZip(zipPath);
-    await runSummarize();
-    // route is currently a no-op unless you implement it; safe to call later
+    await runSummarize({ mode: "heuristic" });
     await writeInbox();
   });
 
@@ -35,15 +35,22 @@ program
 program
   .command("summarize")
   .description("Generate thread cards for imported conversations")
-  .action(async () => {
-    await runSummarize();
+  .option("--mode <mode>", "heuristic|llm", "heuristic")
+  .option("--max <n>", "limit number of threads (newest first)", (v) =>
+    parseInt(v, 10)
+  )
+  .action(async (opts: { mode: string; max?: number }) => {
+    const mode = opts.mode === "llm" ? "llm" : "heuristic";
+    await runSummarize({ mode, max: opts.max });
   });
 
 program
   .command("route")
   .description("Route conversations based on rules")
   .action(async () => {
-    console.log("Route command not implemented yet");
+    console.log(
+      "Route command not implemented in this build (use the routeCommand version if you added it)."
+    );
   });
 
 program
@@ -53,13 +60,49 @@ program
     await writeInbox();
   });
 
-async function runSummarize(): Promise<void> {
-  // rawThreadsPath is a function in paths.ts
-  const p = rawThreadsPath();
-  const raw = await fs.readFile(p, "utf8");
+async function loadThreadsNewestFirst(): Promise<RawThread[]> {
+  const raw = await fs.readFile(rawThreadsPath(), "utf8");
   const threads: RawThread[] = JSON.parse(raw);
 
-  await writeThreadCards(threads);
+  return threads.sort(
+    (a, b) =>
+      new Date(b.last_active_at).getTime() -
+      new Date(a.last_active_at).getTime()
+  );
+}
+
+async function runSummarize(params: {
+  mode: "heuristic" | "llm";
+  max?: number;
+}): Promise<void> {
+  const threads = await loadThreadsNewestFirst();
+  const limited =
+    typeof params.max === "number" && params.max > 0
+      ? threads.slice(0, params.max)
+      : threads;
+
+  if (params.mode === "llm") {
+    const extracts = new Map<string, any>();
+    let done = 0;
+
+    for (const t of limited) {
+      const ex = await llmSummarizeThread(t);
+      extracts.set(t.thread_uid, ex);
+      done++;
+      if (done % 10 === 0) {
+        console.log(`LLM summarized ${done}/${limited.length}`);
+      }
+    }
+
+    await writeThreadCards({
+      threads: limited,
+      mode: "llm",
+      llmExtracts: extracts,
+    });
+    return;
+  }
+
+  await writeThreadCards({ threads: limited, mode: "heuristic" });
 }
 
 program.parseAsync(process.argv).catch((err) => {
