@@ -10,16 +10,21 @@ type ThreadMeta = {
   uid: string;
   title: string;
   last_active_at: string;
-  apps: string[]; // canonical apps only
-  tags: string[]; // cleaned tags only
-  focus_app: string; // first canonical app or "(none)"
+  domain: string;
+  apps: string[];      // canonical apps
+  tags: string[];      // cleaned tags (phrases)
+  bucket: string;      // app:<AppName> or domain:<domain>
+  tagWords: Set<string>;
+  titleWords: Set<string>;
 };
 
 type ClusterCache = {
   cluster_id: string;
   canonical_uid: string;
   uids: string[];
+  bucket: string;
   focus_app: string;
+  domain: string;
   apps: string[];
   tags: string[];
   size: number;
@@ -27,33 +32,19 @@ type ClusterCache = {
 
 const JUNK_TAG_EXACT = new Set(
   [
-    "div",
-    "span",
-    "/div",
-    "class",
-    "style",
-    "font-size",
-    "color",
-    "width",
-    "display",
-    "table",
-    "margin",
-    "margin-bottom",
-    "padding",
-    "var",
-    "px",
-    "rem",
-    "href",
-    "src",
-    "html",
-    "css",
-    "hljs-string",
-    "hljs-keyword",
-    "hljs-title",
-    "hljs-number",
-    "hljs-comment",
-    "data-line-start",
-    "data-line-end",
+    "div","span","/div","class","style","font-size","color","width","display","table",
+    "margin","margin-bottom","padding","var","px","rem","href","src","html","css",
+    "hljs-string","hljs-keyword","hljs-title","hljs-number","hljs-comment",
+    "data-line-start","data-line-end",
+  ].map((x) => x.toLowerCase())
+);
+
+// words that are too generic to cluster on
+const GENERIC_WORDS = new Set(
+  [
+    "ai","app","apps","tool","tools","project","workflow","system","design","build","setup",
+    "help","notes","update","issue","fix","prompt","chat","chats","thread","threads",
+    "code","repo","github","vscode",
   ].map((x) => x.toLowerCase())
 );
 
@@ -65,15 +56,19 @@ function safeTitle(s: string): string {
   return (s || "Untitled").replace(/\r?\n/g, " ").trim();
 }
 
-function toTokens(s: string): Set<string> {
-  const t = (s || "")
+function toWords(s: string): string[] {
+  return (s || "")
     .toLowerCase()
     .replace(/[^a-z0-9\s]/g, " ")
     .split(/\s+/)
     .map((x) => x.trim())
     .filter(Boolean)
-    .filter((x) => x.length >= 3);
-  return new Set(t);
+    .filter((x) => x.length >= 3)
+    .filter((x) => !GENERIC_WORDS.has(x));
+}
+
+function setFromWords(words: string[]): Set<string> {
+  return new Set(words);
 }
 
 function jaccard(a: Set<string>, b: Set<string>): number {
@@ -82,6 +77,12 @@ function jaccard(a: Set<string>, b: Set<string>): number {
   for (const x of a) if (b.has(x)) inter++;
   const union = a.size + b.size - inter;
   return union === 0 ? 0 : inter / union;
+}
+
+function intersectionCount(a: Set<string>, b: Set<string>): number {
+  let n = 0;
+  for (const x of a) if (b.has(x)) n++;
+  return n;
 }
 
 function normalizeTag(tag: string): string | null {
@@ -118,14 +119,6 @@ function normalizeApps(apps: string[]): string[] {
   return uniq((apps || []).map((a) => String(a).trim()).filter(Boolean));
 }
 
-function overlapCount(a: string[], b: string[]): number {
-  const A = new Set(a.map((x) => x.toLowerCase()));
-  const B = new Set(b.map((x) => x.toLowerCase()));
-  let n = 0;
-  for (const x of A) if (B.has(x)) n++;
-  return n;
-}
-
 async function readThreadFrontmatter(threadUid: string): Promise<Frontmatter | null> {
   const cardPath = path.join(threadsDir(), `${threadUid}.md`);
   let md: string;
@@ -159,30 +152,37 @@ function formatClusterId(n: number): string {
   return `CL-${String(n).padStart(5, "0")}`;
 }
 
-function computeSimilarityWithinApp(a: ThreadMeta, b: ThreadMeta): { score: number; tagSim: number; titleSim: number; sharedTags: number } {
-  const aTags = new Set(a.tags);
-  const bTags = new Set(b.tags);
-  const tagSim = jaccard(aTags, bTags);
+/**
+ * Word-based similarity inside a bucket:
+ * - compare tagWords (main)
+ * - compare titleWords (secondary)
+ * - require a minimum shared word count to avoid random merges
+ */
+function similarity(a: ThreadMeta, b: ThreadMeta): { score: number; shared: number; tagSim: number; titleSim: number } {
+  const tagSim = jaccard(a.tagWords, b.tagWords);
+  const titleSim = jaccard(a.titleWords, b.titleWords);
 
-  const titleSim = jaccard(toTokens(a.title), toTokens(b.title));
+  const shared = intersectionCount(a.tagWords, b.tagWords) + Math.floor(0.5 * intersectionCount(a.titleWords, b.titleWords));
 
-  const sharedTags = overlapCount(a.tags, b.tags);
+  // signal gate:
+  // - either 3+ shared keyword words
+  // - or strong title similarity plus 2 shared tag words
+  const sharedTagOnly = intersectionCount(a.tagWords, b.tagWords);
+  const ok =
+    shared >= 3 ||
+    (titleSim >= 0.60 && sharedTagOnly >= 2) ||
+    (tagSim >= 0.35 && sharedTagOnly >= 2);
 
-  // “signal gate” to avoid random merges:
-  // accept similarity only if:
-  // - at least 2 shared tags, OR
-  // - titleSim is strong (>= 0.55) AND at least 1 shared tag
-  const signalOk = sharedTags >= 2 || (titleSim >= 0.55 && sharedTags >= 1);
-  if (!signalOk) return { score: 0, tagSim, titleSim, sharedTags };
+  if (!ok) return { score: 0, shared, tagSim, titleSim };
 
-  // Weighted score inside an app bucket
-  const score = Math.min(0.99, 0.65 * tagSim + 0.35 * titleSim);
-  return { score, tagSim, titleSim, sharedTags };
+  const score = Math.min(0.99, 0.75 * tagSim + 0.25 * titleSim);
+  return { score, shared, tagSim, titleSim };
 }
 
-function acceptThreshold(): number {
-  // less strict than before, but still conservative due to “signal gate”
-  return 0.45;
+function acceptThreshold(bucket: string): number {
+  // domain buckets are noisier
+  if (bucket.startsWith("domain:")) return 0.42;
+  return 0.32; // app buckets
 }
 
 async function updateThreadMergeFields(threadUid: string, clusterId: string, dupConfidence: number): Promise<void> {
@@ -205,7 +205,7 @@ async function updateThreadMergeFields(threadUid: string, clusterId: string, dup
   await fs.writeFile(cardPath, `---\n${newFm}\n---\n${body}`, "utf8");
 }
 
-async function writeClusterMarkdown(clusterId: string, meta: ThreadMeta[], canonicalUid: string, focusApp: string): Promise<void> {
+async function writeClusterMarkdown(clusterId: string, meta: ThreadMeta[], canonicalUid: string, bucket: string, focusApp: string, domain: string): Promise<void> {
   await fs.mkdir(clustersDir(), { recursive: true });
   const clusterPath = path.join(clustersDir(), `${clusterId}.md`);
 
@@ -221,15 +221,16 @@ async function writeClusterMarkdown(clusterId: string, meta: ThreadMeta[], canon
   lines.push("");
   lines.push(`**Size:** ${meta.length}`);
   lines.push(`**Canonical:** \`${canonicalUid}\``);
+  lines.push(`**Bucket:** ${bucket}`);
   lines.push(`**Focus app:** ${focusApp}`);
+  lines.push(`**Domain:** ${domain}`);
   lines.push("");
   lines.push(`**Apps (union):** ${appsUnion.length ? appsUnion.join(", ") : "(none)"}`);
   lines.push(`**Tags:** ${tagsUnion.length ? tagsUnion.join(", ") : "(none)"}`);
   lines.push("");
   lines.push("## Threads");
   for (const m of sortedByDate) {
-    const title = safeTitle(m.title);
-    lines.push(`- [${title}](../threads/${m.uid}.md) — last_active=${m.last_active_at}${m.uid === canonicalUid ? " **(canonical)**" : ""}`);
+    lines.push(`- [${safeTitle(m.title)}](../threads/${m.uid}.md) — last_active=${m.last_active_at}${m.uid === canonicalUid ? " **(canonical)**" : ""}`);
   }
   lines.push("");
   lines.push("## Recommendation");
@@ -250,64 +251,72 @@ export async function runMergeCommand(opts: { max?: number; minSize?: number } =
 
   await cleanClustersDir();
 
-  // Build metadata from thread cards
   const metas: ThreadMeta[] = [];
   for (const t of limited) {
     const fm = await readThreadFrontmatter(t.thread_uid);
 
     const apps = normalizeApps(Array.isArray(fm?.apps) ? fm!.apps.map(String) : []);
     const tags = cleanTags(Array.isArray(fm?.tags) ? fm!.tags.map(String) : []);
-    const focus_app = apps.length ? apps[0] : "(none)";
+    const domain = String(fm?.domain ?? "unknown");
+
+    const focusApp = apps.length ? apps[0] : "(none)";
+    const bucket = apps.length ? `app:${apps[0]}` : `domain:${domain}`;
+
+    const tagWords = setFromWords(tags.flatMap((p) => toWords(p)));
+    const titleWords = setFromWords(toWords(t.title || ""));
 
     metas.push({
       uid: t.thread_uid,
       title: t.title || "Untitled",
       last_active_at: t.last_active_at,
+      domain,
       apps,
       tags,
-      focus_app,
+      bucket,
+      tagWords,
+      titleWords,
     });
   }
 
-  // Bucket by focus_app (app-focused clustering)
+  // group by bucket
   const buckets = new Map<string, ThreadMeta[]>();
   for (const m of metas) {
-    if (m.focus_app === "(none)") continue; // skip no-app threads in v1
-    if (!buckets.has(m.focus_app)) buckets.set(m.focus_app, []);
-    buckets.get(m.focus_app)!.push(m);
+    if (!buckets.has(m.bucket)) buckets.set(m.bucket, []);
+    buckets.get(m.bucket)!.push(m);
   }
 
-  const allClusters: { focus_app: string; members: ThreadMeta[] }[] = [];
+  const allClusters: { bucket: string; members: ThreadMeta[] }[] = [];
 
-  for (const [focusApp, items] of buckets.entries()) {
-    // Greedy clustering within bucket
+  for (const [bucket, items] of buckets.entries()) {
     const clusters: { centroid: ThreadMeta; members: ThreadMeta[] }[] = [];
+
     for (const m of items) {
       let bestIdx = -1;
       let bestScore = 0;
 
       for (let i = 0; i < clusters.length; i++) {
-        const c = clusters[i];
-        const sim = computeSimilarityWithinApp(m, c.centroid);
+        const sim = similarity(m, clusters[i].centroid);
         if (sim.score > bestScore) {
           bestScore = sim.score;
           bestIdx = i;
         }
       }
 
-      if (bestIdx >= 0 && bestScore >= acceptThreshold()) {
+      const thresh = acceptThreshold(bucket);
+      if (bestIdx >= 0 && bestScore >= thresh) {
         const c = clusters[bestIdx];
         c.members.push(m);
 
-        // update centroid: newest
+        // centroid = newest, widen word sets slightly
         const newest =
           new Date(m.last_active_at).getTime() > new Date(c.centroid.last_active_at).getTime() ? m : c.centroid;
 
         c.centroid = {
           ...newest,
-          // widen centroid tags slightly (union)
           tags: uniq([...c.centroid.tags, ...m.tags]).slice(0, 15),
           apps: uniq([...c.centroid.apps, ...m.apps]).slice(0, 2),
+          tagWords: new Set([...c.centroid.tagWords, ...m.tagWords]),
+          titleWords: new Set([...c.centroid.titleWords, ...m.titleWords]),
         };
       } else {
         clusters.push({ centroid: m, members: [m] });
@@ -315,16 +324,13 @@ export async function runMergeCommand(opts: { max?: number; minSize?: number } =
     }
 
     for (const c of clusters) {
-      if (c.members.length >= minSize) {
-        allClusters.push({ focus_app: focusApp, members: c.members });
-      }
+      if (c.members.length >= minSize) allClusters.push({ bucket, members: c.members });
     }
   }
 
-  // Sort biggest first
   allClusters.sort((a, b) => b.members.length - a.members.length);
 
-  const outClusters: ClusterCache[] = [];
+  const out: ClusterCache[] = [];
   let idCounter = 1;
 
   for (const c of allClusters) {
@@ -334,26 +340,31 @@ export async function runMergeCommand(opts: { max?: number; minSize?: number } =
     );
     const canonical = sorted[0].uid;
 
-    await writeClusterMarkdown(clusterId, c.members, canonical, c.focus_app);
+    const focusApp = c.bucket.startsWith("app:") ? c.bucket.slice(4) : "(none)";
+    const domain = sorted[0].domain || "unknown";
+
+    await writeClusterMarkdown(clusterId, c.members, canonical, c.bucket, focusApp, domain);
 
     for (const m of c.members) {
-      const dup = m.uid === canonical ? 0 : computeSimilarityWithinApp(m, sorted[0]).score;
+      const dup = m.uid === canonical ? 0 : similarity(m, sorted[0]).score;
       await updateThreadMergeFields(m.uid, clusterId, dup);
     }
 
-    outClusters.push({
+    out.push({
       cluster_id: clusterId,
       canonical_uid: canonical,
       uids: c.members.map((x) => x.uid),
-      focus_app: c.focus_app,
+      bucket: c.bucket,
+      focus_app: focusApp,
+      domain,
       apps: uniq(c.members.flatMap((x) => x.apps)).slice(0, 8),
       tags: uniq(c.members.flatMap((x) => x.tags)).slice(0, 25),
       size: c.members.length,
     });
   }
 
-  await fs.writeFile(clustersCachePath(), JSON.stringify(outClusters, null, 2), "utf8");
+  await fs.writeFile(clustersCachePath(), JSON.stringify(out, null, 2), "utf8");
 
-  console.log(`Built ${outClusters.length} clusters (minSize=${minSize}) from ${limited.length} threads.`);
+  console.log(`Built ${out.length} clusters (minSize=${minSize}) from ${limited.length} threads.`);
   console.log(`Wrote clusters cache: ${clustersCachePath()}`);
 }
