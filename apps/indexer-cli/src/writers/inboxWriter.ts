@@ -2,7 +2,7 @@ import fs from "fs/promises";
 import path from "path";
 import yaml from "js-yaml";
 import { RawThread } from "../importer/zipImport";
-import { inboxDir, rawThreadsPath, threadsDir, clustersCachePath } from "../paths";
+import { inboxDir, rawThreadsPath, threadsDir, clustersCachePath, patchesDir } from "../paths";
 
 type Frontmatter = Record<string, any>;
 
@@ -13,6 +13,12 @@ type ClusterCacheItem = {
   apps: string[];
   tags: string[];
   size: number;
+};
+
+type PatchManifest = {
+  run_id: string;
+  created_at: string;
+  items: Array<{ cluster_id: string; destination: string; patch_file: string }>;
 };
 
 function splitFrontmatter(md: string): Frontmatter | null {
@@ -79,6 +85,15 @@ No imported threads found. Run: \`indexer import <zipPath>\`
   }
   clusters.sort((a, b) => b.size - a.size);
 
+  // Ready patches (patches/manifest.json)
+  let patchManifest: PatchManifest | null = null;
+  try {
+    const raw = await fs.readFile(path.join(patchesDir(), "manifest.json"), "utf8");
+    patchManifest = JSON.parse(raw) as PatchManifest;
+  } catch {
+    patchManifest = null;
+  }
+
   let content = `# Director Inbox — ${today}\n\n`;
 
   content += "## Newest Threads\n";
@@ -104,6 +119,16 @@ No imported threads found. Run: \`indexer import <zipPath>\`
     for (const c of clusters.slice(0, 12)) {
       const appStr = c.apps?.length ? c.apps.join(", ") : "(no app)";
       content += `- [${c.cluster_id}](../clusters/${c.cluster_id}.md) — size=${c.size} canonical=${c.canonical_uid} apps=${appStr}\n`;
+    }
+  }
+
+  content += "\n## Ready patches\n";
+  if (!patchManifest || !Array.isArray(patchManifest.items) || patchManifest.items.length === 0) {
+    content += "- (none) Run: `indexer patch --max-clusters 10`\n";
+  } else {
+    const items = patchManifest.items.slice(0, 20);
+    for (const it of items) {
+      content += `- ${it.patch_file} → ${it.destination} (from ${it.cluster_id})\n`;
     }
   }
 

@@ -47,13 +47,31 @@ apps:
       - call drip
       - inbound
       - outbound
-      - show
       - no show
       - script
       - call jukebox
       - call training
     primary_home:
       file: "docs/bdc/INDEX.md"
+      section: "Overview"
+
+  Infra:
+    keywords:
+      - rocket.new
+      - rocket new
+      - hr onboarding
+      - onboarding
+      - hireology
+      - hr portal
+      - gemini
+      - ai studio
+      - google ai studio
+      - opal
+      - vscode
+      - supabase
+      - github
+    primary_home:
+      file: "docs/infra/index.md"
       section: "Overview"
 
   Vehicle-in-Need:

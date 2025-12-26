@@ -11,9 +11,9 @@ type ThreadMeta = {
   title: string;
   last_active_at: string;
   domain: string;
-  apps: string[];      // canonical apps
-  tags: string[];      // cleaned tags (phrases)
-  bucket: string;      // app:<AppName> or domain:<domain>
+  apps: string[];
+  tags: string[];
+  bucket: string;
   tagWords: Set<string>;
   titleWords: Set<string>;
 };
@@ -39,12 +39,20 @@ const JUNK_TAG_EXACT = new Set(
   ].map((x) => x.toLowerCase())
 );
 
-// words that are too generic to cluster on
+// generic words + code/schema junk you DO NOT want clustering on
 const GENERIC_WORDS = new Set(
   [
-    "ai","app","apps","tool","tools","project","workflow","system","design","build","setup",
-    "help","notes","update","issue","fix","prompt","chat","chats","thread","threads",
-    "code","repo","github","vscode",
+    // generic
+    "ai","app","apps","tool","tools","project","workflow","system","design","build","setup","help",
+    "notes","update","issue","fix","prompt","chat","chats","thread","threads",
+    // code-ish
+    "const","let","var","function","return","import","export","default","async","await",
+    "true","false","null","undefined","json","yaml","md","tsx","ts","js","node","pnpm",
+    "classname","props","state","hook","component","jsx","html","css","style","class",
+    "value","name","id","data","line","start","end",
+    // schema-ish (movie tracker columns etc.)
+    "title","year","status","tags","english","language","loved","liked","watched","notes","disturbance",
+    "kids","animals",
   ].map((x) => x.toLowerCase())
 );
 
@@ -103,6 +111,10 @@ function normalizeTag(tag: string): string | null {
   if (t.length < 3) return null;
   if (/^\d+$/.test(t)) return null;
 
+  // reject tags that are basically generic words
+  const words = toWords(t);
+  if (words.length === 0) return null;
+
   return t;
 }
 
@@ -152,26 +164,22 @@ function formatClusterId(n: number): string {
   return `CL-${String(n).padStart(5, "0")}`;
 }
 
-/**
- * Word-based similarity inside a bucket:
- * - compare tagWords (main)
- * - compare titleWords (secondary)
- * - require a minimum shared word count to avoid random merges
- */
 function similarity(a: ThreadMeta, b: ThreadMeta): { score: number; shared: number; tagSim: number; titleSim: number } {
   const tagSim = jaccard(a.tagWords, b.tagWords);
   const titleSim = jaccard(a.titleWords, b.titleWords);
 
-  const shared = intersectionCount(a.tagWords, b.tagWords) + Math.floor(0.5 * intersectionCount(a.titleWords, b.titleWords));
+  const sharedTag = intersectionCount(a.tagWords, b.tagWords);
+  const sharedTitle = intersectionCount(a.titleWords, b.titleWords);
+  const shared = sharedTag + Math.floor(0.5 * sharedTitle);
 
   // signal gate:
-  // - either 3+ shared keyword words
-  // - or strong title similarity plus 2 shared tag words
-  const sharedTagOnly = intersectionCount(a.tagWords, b.tagWords);
+  // - 2+ shared tag words, OR
+  // - strong title similarity + 1+ shared tag word
   const ok =
-    shared >= 3 ||
-    (titleSim >= 0.60 && sharedTagOnly >= 2) ||
-    (tagSim >= 0.35 && sharedTagOnly >= 2);
+    sharedTag >= 2 ||
+    (titleSim >= 0.62 && sharedTag >= 1) ||
+    tagSim >= 0.30 ||
+    titleSim >= 0.82;
 
   if (!ok) return { score: 0, shared, tagSim, titleSim };
 
@@ -180,9 +188,8 @@ function similarity(a: ThreadMeta, b: ThreadMeta): { score: number; shared: numb
 }
 
 function acceptThreshold(bucket: string): number {
-  // domain buckets are noisier
-  if (bucket.startsWith("domain:")) return 0.42;
-  return 0.32; // app buckets
+  if (bucket.startsWith("domain:")) return 0.40;
+  return 0.30;
 }
 
 async function updateThreadMergeFields(threadUid: string, clusterId: string, dupConfidence: number): Promise<void> {
@@ -278,7 +285,6 @@ export async function runMergeCommand(opts: { max?: number; minSize?: number } =
     });
   }
 
-  // group by bucket
   const buckets = new Map<string, ThreadMeta[]>();
   for (const m of metas) {
     if (!buckets.has(m.bucket)) buckets.set(m.bucket, []);
@@ -307,7 +313,6 @@ export async function runMergeCommand(opts: { max?: number; minSize?: number } =
         const c = clusters[bestIdx];
         c.members.push(m);
 
-        // centroid = newest, widen word sets slightly
         const newest =
           new Date(m.last_active_at).getTime() > new Date(c.centroid.last_active_at).getTime() ? m : c.centroid;
 

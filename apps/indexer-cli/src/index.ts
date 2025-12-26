@@ -7,6 +7,8 @@ import { writeThreadCards } from "./writers/threadCardWriter";
 import { llmSummarizeThread } from "./summarizer/llmSummarizer";
 import { runRouteCommand } from "./commands/routeCommand";
 import { runMergeCommand } from "./commands/mergeCommand";
+import { enrichClusters } from "./commands/enrichClustersCommand";
+import { runPatchCommand } from "./commands/patchCommand";
 
 const program = new Command();
 
@@ -41,9 +43,25 @@ program
   .command("merge")
   .description("Cluster similar threads and mark duplicates")
   .option("--max <n>", "limit number of newest threads to consider", (v) => parseInt(v, 10))
-  .option("--min-size <n>", "minimum cluster size (default 3)", (v) => parseInt(v, 10))
+  .option("--min-size <n>", "minimum cluster size", (v) => parseInt(v, 10))
   .action(async (opts: { max?: number; minSize?: number }) => {
     await runMergeCommand({ max: opts.max, minSize: opts.minSize });
+  });
+
+program
+  .command("enrich-clusters")
+  .description("Enrich cluster markdown files with merged summary/decisions/actions using cached LLM extracts")
+  .option("--max <n>", "limit number of clusters to enrich", (v) => parseInt(v, 10))
+  .action(async (opts: { max?: number }) => {
+    await enrichClusters({ maxClusters: opts.max });
+  });
+
+program
+  .command("patch")
+  .description("Generate diff-only patch files for enriched clusters")
+  .option("--max-clusters <n>", "limit number of clusters to patch", (v) => parseInt(v, 10))
+  .action(async (opts: { maxClusters?: number }) => {
+    await runPatchCommand({ maxClusters: opts.maxClusters });
   });
 
 program
@@ -56,15 +74,17 @@ program
 program
   .command("run")
   .argument("<zipPath>", "Path to ChatGPT export zip")
-  .description("Full pipeline: import, summarize, route, merge, inbox")
+  .description("Full pipeline: import, summarize, route, merge, enrich-clusters, inbox")
   .option("--mode <mode>", "heuristic|llm", "heuristic")
   .option("--max <n>", "limit number of threads (newest first)", (v) => parseInt(v, 10))
-  .action(async (zipPath: string, opts: { mode: string; max?: number }) => {
+  .option("--min-size <n>", "minimum cluster size for merge", (v) => parseInt(v, 10))
+  .action(async (zipPath: string, opts: { mode: string; max?: number; minSize?: number }) => {
     await importZip(zipPath);
     const mode = opts.mode === "llm" ? "llm" : "heuristic";
     await runSummarize({ mode, max: opts.max });
     await runRouteCommand();
-    await runMergeCommand({ max: opts.max });
+    await runMergeCommand({ max: opts.max, minSize: opts.minSize });
+    await enrichClusters({});
     await writeInbox();
   });
 
