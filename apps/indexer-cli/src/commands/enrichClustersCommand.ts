@@ -300,6 +300,22 @@ function mergeSummaries(extracts: LlmExtract[]): string {
   const maxSentences = 10;
   const maxChars = 900;
 
+  const isGenericLeadSentence = (sent: string): boolean => {
+    const s = (sent || "").trim();
+    if (!s) return false;
+    return (
+      /^this (conversation|thread)\s+/i.test(s) ||
+      /^in this (conversation|thread)\s+/i.test(s) ||
+      /^overall\s*,?\s*this (conversation|thread)\s+/i.test(s) ||
+      /^the conversation\s+(revolves|focuses|centers|covers|discusses|is about)\b/i.test(
+        s
+      ) ||
+      /^this conversation\s+(revolves|focuses|centers|covers|discusses|is about)\b/i.test(
+        s
+      )
+    );
+  };
+
   const finalize = (text: string): string => {
     const t = (text || "").replace(/\s+/g, " ").trim();
     if (!t) return t;
@@ -319,27 +335,27 @@ function mergeSummaries(extracts: LlmExtract[]): string {
 
   const seen = new Set<string>();
   const out: string[] = [];
-  let usedConversationLead = false;
 
   const summaries = extracts
     .map((e) => (e.summary || "").replace(/\s+/g, " ").trim())
     .filter(Boolean);
 
   for (const s of summaries) {
-    const sentences = s
+    let sentences = s
       .split(/(?<=[.!?])\s+/)
       .map((x) => x.trim())
       .filter(Boolean);
 
+    // Drop generic lead sentence(s) when better content exists.
+    if (sentences.length > 1) {
+      while (sentences.length > 1 && isGenericLeadSentence(sentences[0])) {
+        sentences = sentences.slice(1);
+      }
+    }
+
     for (const sent of sentences) {
       const k = sent.toLowerCase();
       if (!k || seen.has(k)) continue;
-
-      // Avoid repeating the generic "The conversation ..." lead sentence over and over
-      if (/^the conversation\s+(revolves|focuses|centers)/i.test(sent)) {
-        if (usedConversationLead) continue;
-        usedConversationLead = true;
-      }
 
       seen.add(k);
       out.push(sent);

@@ -24,7 +24,15 @@ type ClusterCacheItem = {
 type PatchManifest = {
   run_id: string;
   created_at: string;
-  items: Array<{ cluster_id: string; destination: string; patch_file: string }>;
+  items: Array<{
+    cluster_id: string;
+    destination: string;
+    kind: "patch" | "skipped";
+    patch_file?: string;
+    used_anchor?: boolean;
+    anchor_section?: string | null;
+    skipped_reason?: string;
+  }>;
 };
 
 function splitFrontmatter(md: string): Frontmatter | null {
@@ -156,9 +164,15 @@ No imported threads found. Run: \`indexer import <zipPath>\`
   ) {
     content += "- (none) Run: `indexer patch --max-clusters 10`\n";
   } else {
-    const items = patchManifest.items.slice(0, 20);
-    for (const it of items) {
-      content += `- ${it.patch_file} → ${it.destination} (from ${it.cluster_id})\n`;
+    const patchItems = patchManifest.items
+      .filter((it) => it.kind === "patch" && !!it.patch_file)
+      .slice(0, 20);
+    if (patchItems.length === 0) {
+      content += "- (none) Run: `indexer patch --max-clusters 10`\n";
+    } else {
+      for (const it of patchItems) {
+        content += `- ${it.patch_file} → ${it.destination} (from ${it.cluster_id})\n`;
+      }
     }
   }
 
