@@ -1,12 +1,10 @@
-#!/usr/bin/env node
 import { Command } from "commander";
-import fs from "fs";
-import path from "path";
 import { importZip } from "./importer/zipImport";
-import { writeThreadCards } from "./writers/threadCardWriter";
 import { writeInbox } from "./writers/inboxWriter";
-import { routeThreads } from "./router/router";
-import { exportsDir } from "./paths";
+import { writeThreadCards } from "./writers/threadCardWriter";
+import fs from "fs/promises";
+import { rawThreadsPath } from "./paths";
+import { RawThread } from "./importer/zipImport";
 
 const program = new Command();
 
@@ -16,71 +14,55 @@ program
   .version("1.0.0");
 
 program
-  .command("run <zipPath>")
+  .command("run")
+  .argument("<zipPath>", "Path to ChatGPT export zip")
   .description("Full pipeline: import, summarize, route, inbox")
-  .action(async (zipPath) => {
-    const { runId, resolvedZipPath } = await importZip(zipPath);
-    console.log(`Imported zip. runId=${runId} zip=${resolvedZipPath}`);
-    await writeThreadCards(runId);
-    await routeThreads(runId);
+  .action(async (zipPath: string) => {
+    await importZip(zipPath);
+    await runSummarize();
+    // route is currently a no-op unless you implement it; safe to call later
     await writeInbox();
   });
 
 program
-  .command("import <zipPath>")
+  .command("import")
+  .argument("<zipPath>", "Path to ChatGPT export zip")
   .description("Import zip file and extract conversations")
-  .action(async (zipPath) => {
-    const { runId, resolvedZipPath } = await importZip(zipPath);
-    console.log(`Imported zip. runId=${runId} zip=${resolvedZipPath}`);
-  });
-
-program
-  .command("list-exports")
-  .description("List zip files in the repo exports/ folder")
-  .action(async () => {
-    const dir = exportsDir();
-    let entries: string[];
-    try {
-      entries = await fs.promises.readdir(dir);
-    } catch {
-      console.log(`No exports directory found: ${path.resolve(dir)}`);
-      return;
-    }
-
-    const zips = entries
-      .filter((name) => name.toLowerCase().endsWith(".zip"))
-      .sort((a, b) => a.localeCompare(b));
-
-    if (zips.length === 0) {
-      console.log(`No .zip files found in: ${path.resolve(dir)}`);
-      return;
-    }
-
-    for (const name of zips) {
-      console.log(`exports/${name}`);
-    }
+  .action(async (zipPath: string) => {
+    await importZip(zipPath);
   });
 
 program
   .command("summarize")
-  .description("Generate summaries for imported conversations")
-  .action(() => console.log("Summarize command not implemented yet"));
+  .description("Generate thread cards for imported conversations")
+  .action(async () => {
+    await runSummarize();
+  });
 
 program
   .command("route")
   .description("Route conversations based on rules")
-  .action(() => console.log("Route command not implemented yet"));
+  .action(async () => {
+    console.log("Route command not implemented yet");
+  });
 
 program
   .command("inbox")
   .description("Generate inbox view")
   .action(async () => {
-    try {
-      await writeInbox();
-    } catch (error) {
-      console.error("Error generating inbox:", error);
-      process.exit(1);
-    }
+    await writeInbox();
   });
 
-program.parse(process.argv);
+async function runSummarize(): Promise<void> {
+  // rawThreadsPath is a function in paths.ts
+  const p = rawThreadsPath();
+  const raw = await fs.readFile(p, "utf8");
+  const threads: RawThread[] = JSON.parse(raw);
+
+  await writeThreadCards(threads);
+}
+
+program.parseAsync(process.argv).catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

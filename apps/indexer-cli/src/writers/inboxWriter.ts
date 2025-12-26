@@ -1,36 +1,81 @@
+import fsp from "fs/promises";
 import path from "path";
+import { inboxDir, threadsDir } from "../paths";
 
-/**
- * This file lives at:
- *   <repoRoot>/apps/indexer-cli/src/paths.ts
- *
- * So repo root is:
- *   path.resolve(__dirname, "../../..")
- */
-export function repoRoot(): string {
-  return path.resolve(__dirname, "../../..");
+function todayISODate(): string {
+  return new Date().toISOString().slice(0, 10);
 }
 
-export function cacheDir(): string {
-  return path.join(repoRoot(), ".cache");
+function stripYamlString(v: string): string {
+  const t = (v || "").trim();
+  if (
+    (t.startsWith('"') && t.endsWith('"')) ||
+    (t.startsWith("'") && t.endsWith("'"))
+  ) {
+    return t.slice(1, -1).trim();
+  }
+  return t;
 }
 
-export function rawThreadsPath(): string {
-  return path.join(cacheDir(), "raw_threads.json");
+function extractFrontmatterValue(md: string, key: string): string {
+  const lines = (md || "").split(/\r?\n/);
+  if (lines[0] !== "---") return "";
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i];
+    if (line === "---") break;
+    const m = line.match(new RegExp(`^${key}:\\s*(.*)\\s*$`));
+    if (m) return stripYamlString(m[1] || "");
+  }
+  return "";
 }
 
-export function threadVaultDir(): string {
-  return path.join(repoRoot(), "thread-vault");
-}
+export async function writeInbox(): Promise<void> {
+  const date = todayISODate();
+  const outDir = inboxDir();
+  const outPath = path.join(outDir, `${date}.md`);
 
-export function inboxDir(): string {
-  return path.join(threadVaultDir(), "inbox");
-}
+  await fsp.mkdir(outDir, { recursive: true });
 
-export function threadsDir(): string {
-  return path.join(threadVaultDir(), "threads");
-}
+  let entries: string[] = [];
+  try {
+    entries = await fsp.readdir(threadsDir());
+  } catch {
+    entries = [];
+  }
 
-export function patchesDir(): string {
-  return path.join(repoRoot(), "patches");
+  const threadFiles = entries.filter((f) => f.endsWith(".md"));
+
+  if (threadFiles.length === 0) {
+    const content = [
+      `# Director Inbox — ${date}`,
+      "",
+      "No imported threads found. Run: `indexer import <zipPath>`",
+      "",
+    ].join("\n");
+    await fsp.writeFile(outPath, content, "utf8");
+    return;
+  }
+
+  const items: string[] = [];
+  for (const file of threadFiles.sort()) {
+    const full = path.join(threadsDir(), file);
+    let md = "";
+    try {
+      md = await fsp.readFile(full, "utf8");
+    } catch {
+      continue;
+    }
+
+    const title =
+      extractFrontmatterValue(md, "title") || file.replace(/\.md$/, "");
+    const uid =
+      extractFrontmatterValue(md, "thread_uid") || file.replace(/\.md$/, "");
+
+    // from thread-vault/inbox -> ../threads/<uid>.md
+    const rel = `../threads/${uid}.md`;
+    items.push(`- [${title}](${rel})`);
+  }
+
+  const content = [`# Director Inbox — ${date}`, "", ...items, ""].join("\n");
+  await fsp.writeFile(outPath, content, "utf8");
 }

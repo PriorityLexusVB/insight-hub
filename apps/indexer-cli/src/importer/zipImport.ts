@@ -95,14 +95,16 @@ function buildLinearPath(
   while (nodeId && mapping[nodeId] && !seen.has(nodeId)) {
     seen.add(nodeId);
     pathIds.push(nodeId);
-    const parent = mapping[nodeId]?.parent ?? null;
-    nodeId = parent ?? undefined;
+    const parentId: string | null = mapping[nodeId]?.parent ?? null;
+    nodeId = parentId ?? undefined;
   }
 
   return pathIds.reverse();
 }
 
-function parseConversationToRawThread(conv: ExportConversation): RawThread | null {
+function parseConversationToRawThread(
+  conv: ExportConversation
+): RawThread | null {
   const mapping = conv.mapping || {};
   const title = (conv.title || "Untitled").toString().trim();
   const thread_uid = (conv.id || "").toString().trim() || `chatgpt-${uuidv4()}`;
@@ -130,9 +132,13 @@ function parseConversationToRawThread(conv: ExportConversation): RawThread | nul
   if (messages.length === 0) {
     const all = Object.values(mapping)
       .map((n) => n?.message)
-      .filter(Boolean) as NonNullable<ExportConversation["mapping"]>[string]["message"][];
+      .filter(Boolean) as NonNullable<
+      ExportConversation["mapping"]
+    >[string]["message"][];
 
-    const sorted = all.sort((a, b) => (a?.create_time || 0) - (b?.create_time || 0));
+    const sorted = all.sort(
+      (a, b) => (a?.create_time || 0) - (b?.create_time || 0)
+    );
     for (const m of sorted) {
       const role = normalizeRole(m?.author?.role);
       const text = extractTextFromContent(m?.content);
@@ -164,10 +170,15 @@ function resolveZipPath(zipPathArg: string): string {
   const cwdCandidate = path.resolve(process.cwd(), arg);
   if (fs.existsSync(cwdCandidate)) return cwdCandidate;
 
-  throw new Error(`Zip not found: ${zipPathArg}\nTried:\n- ${repoCandidate}\n- ${cwdCandidate}`);
+  throw new Error(
+    `Zip not found: ${zipPathArg}\nTried:\n- ${repoCandidate}\n- ${cwdCandidate}`
+  );
 }
 
-async function extractZipToRunDir(zipFilePath: string, runId: string): Promise<string> {
+async function extractZipToRunDir(
+  zipFilePath: string,
+  runId: string
+): Promise<string> {
   const runsRoot = path.join(cacheDir(), "runs");
   const runDir = path.join(runsRoot, runId);
 
@@ -183,7 +194,10 @@ async function extractZipToRunDir(zipFilePath: string, runId: string): Promise<s
   return runDir;
 }
 
-async function readJsonFromRunDir(runDir: string, filename: string): Promise<any | null> {
+async function readJsonFromRunDir(
+  runDir: string,
+  filename: string
+): Promise<any | null> {
   try {
     const filePath = path.join(runDir, filename);
     const raw = await fsp.readFile(filePath, "utf8");
@@ -204,7 +218,10 @@ export async function importZip(
   const runDir = await extractZipToRunDir(zipPath, runId);
 
   // Prefer structured JSON
-  const conversationsJson = await readJsonFromRunDir(runDir, "conversations.json");
+  const conversationsJson = await readJsonFromRunDir(
+    runDir,
+    "conversations.json"
+  );
 
   if (!Array.isArray(conversationsJson)) {
     throw new Error(
@@ -219,7 +236,11 @@ export async function importZip(
   }
 
   await fsp.mkdir(path.dirname(rawThreadsPath()), { recursive: true });
-  await fsp.writeFile(rawThreadsPath(), JSON.stringify(threads, null, 2), "utf8");
+  await fsp.writeFile(
+    rawThreadsPath(),
+    JSON.stringify(threads, null, 2),
+    "utf8"
+  );
 
   console.log(`Imported zip. runId=${runId} zip=${zipPath}`);
   console.log(`Wrote ${threads.length} threads to ${rawThreadsPath()}`);

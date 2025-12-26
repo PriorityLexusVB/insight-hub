@@ -1,47 +1,75 @@
-import fs from 'fs';
-import path from 'path';
-import { promisify } from 'util';
-import { RawThread } from '../importer/zipImport';
-import { threadsDir } from '../paths';
+import fs from "fs";
+import path from "path";
+import { promisify } from "util";
+import { RawThread } from "../importer/zipImport";
+import { heuristicSummarize } from "../summarizer/heuristicSummarizer";
+import { threadsDir } from "../paths";
 
 const mkdir = promisify(fs.mkdir);
 const writeFile = promisify(fs.writeFile);
 
-export async function writeThreadCards(runId: string): Promise<void> {
-  const threadsPath = threadsDir();
-  await mkdir(threadsPath, { recursive: true });
+function yamlEscape(s: string): string {
+  const t = (s ?? "").replace(/\r?\n/g, " ").trim();
+  // quote if needed
+  if (/[:\[\]\{\}\#\&\*\!\|\>\'\"]/.test(t)) {
+    return `"${t.replace(/"/g, '\\"')}"`;
+  }
+  return t;
+}
 
-  // TODO: Load actual raw_threads.json from .cache/run/${runId}/
-  const mockThreads: RawThread[] = [{
-    thread_uid: 'mock-thread-1',
-    title: 'Sample Conversation',
-    created_at: new Date().toISOString(),
-    last_active_at: new Date().toISOString(),
-    messages: [
-      { role: 'user', text: 'Hello, I need help with something' },
-      { role: 'assistant', text: 'Sure, how can I help you today?' }
-    ]
-  }];
+function mdList(items: string[]): string {
+  if (!items || items.length === 0) return "- (none)\n";
+  return items.map((x) => `- ${x}`).join("\n") + "\n";
+}
 
-  for (const thread of mockThreads) {
-    const content = `---
-uid: ${thread.thread_uid}
-title: ${thread.title}
-created: ${thread.created_at}
-updated: ${thread.last_active_at}
----
+export async function writeThreadCards(threads: RawThread[]): Promise<void> {
+  await mkdir(threadsDir(), { recursive: true });
 
-# ${thread.title}
+  for (const thread of threads) {
+    const extract = heuristicSummarize(thread);
 
-## Messages
-${thread.messages.map(msg => `### ${msg.role}\n${msg.text}`).join('\n\n')}
-`;
+    const frontmatter = [
+      "---",
+      `thread_uid: ${yamlEscape(thread.thread_uid)}`,
+      `title: ${yamlEscape(thread.title || "Untitled")}`,
+      `created_at: ${yamlEscape(thread.created_at)}`,
+      `last_active_at: ${yamlEscape(thread.last_active_at)}`,
+      `status: active`,
+      `domain: ${yamlEscape(extract.domain)}`,
+      `apps: [${extract.apps.map(yamlEscape).join(", ")}]`,
+      `tags: [${extract.tags.map(yamlEscape).join(", ")}]`,
+      `sensitivity: ${yamlEscape(extract.sensitivity)}`,
+      `router:`,
+      `  primary_home:`,
+      `    file: ${yamlEscape("thread-vault/UNSORTED.md")}`,
+      `    section: ${yamlEscape("Inbox")}`,
+      `    confidence: 0.0`,
+      `  secondary_homes: []`,
+      `merge:`,
+      `  cluster_id: ""`,
+      `  duplicate_confidence: 0.0`,
+      "---",
+      "",
+    ].join("\n");
 
-    await writeFile(
-      path.join(threadsPath, `${thread.thread_uid}.md`),
-      content
-    );
+    const body = [
+      "## Summary",
+      extract.summary,
+      "",
+      "## Key decisions",
+      mdList(extract.key_decisions),
+      "## Open questions",
+      mdList(extract.open_questions),
+      "## Next actions",
+      extract.next_actions.length
+        ? extract.next_actions.map((a, i) => `${i + 1}) [${a.priority}] ${a.text}`).join("\n") + "\n"
+        : "1) (none)\n",
+      "",
+    ].join("\n");
+
+    const outPath = path.join(threadsDir(), `${thread.thread_uid}.md`);
+    await writeFile(outPath, frontmatter + body, "utf8");
   }
 
-  console.log(`Wrote ${mockThreads.length} thread cards to ${path.resolve(threadsPath)}`);
+  console.log(`Wrote ${threads.length} thread cards to ${path.resolve(threadsDir())}`);
 }
