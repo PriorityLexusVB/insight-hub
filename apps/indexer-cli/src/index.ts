@@ -99,10 +99,7 @@ program
     "--emit-html",
     "also emit a local file:// dashboard (writes <out>/index.html and <out>/data.js)"
   )
-  .option(
-    "--emit-rollup",
-    "also emit rollup summaries (writes <out>/rollup/*)"
-  )
+  .option("--emit-rollup", "also emit rollup summaries (writes <out>/rollup/*)")
   .option(
     "--work-only",
     "limit markdown summaries to work-only scope (CSV/JSON still include full index)"

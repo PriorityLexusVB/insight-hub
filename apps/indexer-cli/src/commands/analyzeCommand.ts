@@ -124,12 +124,16 @@ function rollupKeyForRow(row: ChatIndexRow): {
   dedupe_key: string;
 } {
   const clusterId = (row.cluster_id || "").trim();
-  if (clusterId) return { dedupe_key_type: "cluster_id", dedupe_key: clusterId };
+  if (clusterId)
+    return { dedupe_key_type: "cluster_id", dedupe_key: clusterId };
 
   const home = (row.primary_home_file || "").trim();
   if (home) return { dedupe_key_type: "primary_home_file", dedupe_key: home };
 
-  return { dedupe_key_type: "missing", dedupe_key: `missing:${row.thread_uid}` };
+  return {
+    dedupe_key_type: "missing",
+    dedupe_key: `missing:${row.thread_uid}`,
+  };
 }
 
 function rollupSortTuple(row: ChatIndexRow): [number, number, number, string] {
@@ -163,12 +167,21 @@ function renderRollupMd(params: {
   mergedGroups: number;
   missingClusterIdCount: number;
   primaryHomeFallbackMergedGroups: number;
-  clusterIdMultiHomeGroups: Array<{ key: string; homes: string[]; dupe_count: number }>;
+  clusterIdMultiHomeGroups: Array<{
+    key: string;
+    homes: string[];
+    dupe_count: number;
+  }>;
 }): string {
   const lines: string[] = [];
 
   const relToThread = (uid: string) => {
-    const abs = path.join(params.repoRoot, "thread-vault", "threads", `${uid}.md`);
+    const abs = path.join(
+      params.repoRoot,
+      "thread-vault",
+      "threads",
+      `${uid}.md`
+    );
     return toPosixPath(path.relative(params.rollupDir, abs));
   };
   const relToHome = (p: string) => {
@@ -179,13 +192,19 @@ function renderRollupMd(params: {
   lines.push("# Rollup");
   lines.push("");
   lines.push(`- Generated: ${new Date().toISOString()}`);
-  lines.push(`- Out dir: ${toPosixPath(path.relative(params.repoRoot, params.outDir) || ".")}`);
+  lines.push(
+    `- Out dir: ${toPosixPath(
+      path.relative(params.repoRoot, params.outDir) || "."
+    )}`
+  );
   lines.push(`- Total threads: ${params.rowsTotal}`);
   lines.push(`- Rollup units: ${params.rollups.length}`);
   lines.push(`- Dedupe savings: ${params.rowsTotal - params.rollups.length}`);
   lines.push(`- Merged groups: ${params.mergedGroups}`);
   lines.push(`- Missing cluster_id (count): ${params.missingClusterIdCount}`);
-  lines.push(`- Fallback merged groups by primary_home_file: ${params.primaryHomeFallbackMergedGroups}`);
+  lines.push(
+    `- Fallback merged groups by primary_home_file: ${params.primaryHomeFallbackMergedGroups}`
+  );
   lines.push("");
 
   const topBy = (
@@ -208,9 +227,7 @@ function renderRollupMd(params: {
 
     lines.push(`## ${title}`);
     lines.push("");
-    lines.push(
-      "| metric | load | dupes | work_type | title | thread | home |"
-    );
+    lines.push("| metric | load | dupes | work_type | title | thread | home |");
     lines.push("|---:|---:|---:|---|---|---|---|");
     for (const r of top) {
       const metric = getMetric(r);
@@ -220,17 +237,17 @@ function renderRollupMd(params: {
         ? `[${r.primary_home_file}](${relToHome(r.primary_home_file)})`
         : "";
       lines.push(
-        `| ${mStr} | ${r.max_load.toFixed(2)} | ${r.dupe_count} | ${r.work_type} | ${escapeMd(
-          r.title
-        )} | ${threadLink} | ${homeLink} |`
+        `| ${mStr} | ${r.max_load.toFixed(2)} | ${r.dupe_count} | ${
+          r.work_type
+        } | ${escapeMd(r.title)} | ${threadLink} | ${homeLink} |`
       );
     }
     lines.push("");
   };
 
-  topBy("Top 20 by CWID (winner)", r => numOrNegInf(r.cwid), 2);
-  topBy("Top 20 by load_score (max)", r => r.max_load, 2);
-  topBy("Top 20 by CDI (winner)", r => numOrNegInf(r.CDI), 2);
+  topBy("Top 20 by CWID (winner)", (r) => numOrNegInf(r.cwid), 2);
+  topBy("Top 20 by load_score (max)", (r) => r.max_load, 2);
+  topBy("Top 20 by CDI (winner)", (r) => numOrNegInf(r.CDI), 2);
 
   if (params.clusterIdMultiHomeGroups.length) {
     lines.push("## Collisions: cluster_id spans multiple primary_home_file");
@@ -238,7 +255,11 @@ function renderRollupMd(params: {
     lines.push("| cluster_id | dupes | home files |");
     lines.push("|---|---:|---|");
     for (const g of params.clusterIdMultiHomeGroups.slice(0, 25)) {
-      lines.push(`| ${escapeMd(g.key)} | ${g.dupe_count} | ${escapeMd(g.homes.join(", "))} |`);
+      lines.push(
+        `| ${escapeMd(g.key)} | ${g.dupe_count} | ${escapeMd(
+          g.homes.join(", ")
+        )} |`
+      );
     }
     lines.push("");
   }
@@ -250,7 +271,11 @@ function renderCollisionsMd(params: {
   rollups: RollupRow[];
   missingClusterIdCount: number;
   primaryHomeFallbackMergedGroups: number;
-  clusterIdMultiHomeGroups: Array<{ key: string; homes: string[]; dupe_count: number }>;
+  clusterIdMultiHomeGroups: Array<{
+    key: string;
+    homes: string[];
+    dupe_count: number;
+  }>;
 }): string {
   const lines: string[] = [];
   lines.push("# Collisions");
@@ -270,7 +295,11 @@ function renderCollisionsMd(params: {
     lines.push("| cluster_id | dupes | home files |");
     lines.push("|---|---:|---|");
     for (const g of params.clusterIdMultiHomeGroups.slice(0, 50)) {
-      lines.push(`| ${escapeMd(g.key)} | ${g.dupe_count} | ${escapeMd(g.homes.join(", "))} |`);
+      lines.push(
+        `| ${escapeMd(g.key)} | ${g.dupe_count} | ${escapeMd(
+          g.homes.join(", ")
+        )} |`
+      );
     }
     lines.push("");
   }
@@ -1525,14 +1554,20 @@ export async function runAnalyzeCommand(
       const mapKey = `${dedupe_key_type}:${dedupe_key}`;
       const existing = groups.get(mapKey);
       if (existing) existing.rows.push(r);
-      else groups.set(mapKey, { keyType: dedupe_key_type, key: dedupe_key, rows: [r] });
+      else
+        groups.set(mapKey, {
+          keyType: dedupe_key_type,
+          key: dedupe_key,
+          rows: [r],
+        });
     }
 
     const rollups: RollupRow[] = [];
     const dedupeReport: DedupeReportGroup[] = [];
 
-    const missingClusterIdCount = rows.filter((r) => !(r.cluster_id || "").trim())
-      .length;
+    const missingClusterIdCount = rows.filter(
+      (r) => !(r.cluster_id || "").trim()
+    ).length;
     let mergedGroups = 0;
     let primaryHomeFallbackMergedGroups = 0;
 
@@ -1552,7 +1587,10 @@ export async function runAnalyzeCommand(
       );
       const maxLoad = groupRows.reduce(
         (acc, r) =>
-          Math.max(acc, Number.isFinite(r.load_score) ? r.load_score : -Infinity),
+          Math.max(
+            acc,
+            Number.isFinite(r.load_score) ? r.load_score : -Infinity
+          ),
         -Infinity
       );
 
@@ -1610,12 +1648,15 @@ export async function runAnalyzeCommand(
       }
     }
 
-    rollups.sort((a, b) => compareTupleDesc(rollupSortTuple(a), rollupSortTuple(b)));
+    rollups.sort((a, b) =>
+      compareTupleDesc(rollupSortTuple(a), rollupSortTuple(b))
+    );
     dedupeReport.sort((a, b) => {
       if (a.dedupe_key_type !== b.dedupe_key_type) {
         return a.dedupe_key_type < b.dedupe_key_type ? -1 : 1;
       }
-      if (a.dedupe_key !== b.dedupe_key) return a.dedupe_key < b.dedupe_key ? -1 : 1;
+      if (a.dedupe_key !== b.dedupe_key)
+        return a.dedupe_key < b.dedupe_key ? -1 : 1;
       return 0;
     });
 
@@ -1641,7 +1682,11 @@ export async function runAnalyzeCommand(
     const dedupeReportPath = path.join(rollupDir, "dedupe_report.json");
     const collisionsMdPath = path.join(rollupDir, "collisions.md");
 
-    await fs.writeFile(rollupJsonPath, JSON.stringify(rollups, null, 2), "utf8");
+    await fs.writeFile(
+      rollupJsonPath,
+      JSON.stringify(rollups, null, 2),
+      "utf8"
+    );
     await fs.writeFile(
       rollupMdPath,
       renderRollupMd({

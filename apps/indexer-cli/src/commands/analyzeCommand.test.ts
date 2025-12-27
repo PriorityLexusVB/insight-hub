@@ -317,12 +317,19 @@ Text — with emphasis.
   const dedupeReportPath = path.join(outDir, "rollup", "dedupe_report.json");
   const collisionsMdPath = path.join(outDir, "rollup", "collisions.md");
 
-  for (const p of [rollupJsonPath, rollupMdPath, dedupeReportPath, collisionsMdPath]) {
+  for (const p of [
+    rollupJsonPath,
+    rollupMdPath,
+    dedupeReportPath,
+    collisionsMdPath,
+  ]) {
     const s = await fs.stat(p);
     assert.ok(s.size > 0, `${path.basename(p)} should not be empty`);
   }
 
-  const rollups = JSON.parse(await fs.readFile(rollupJsonPath, "utf8")) as any[];
+  const rollups = JSON.parse(
+    await fs.readFile(rollupJsonPath, "utf8")
+  ) as any[];
   assert.equal(rollups.length, 1);
   assert.equal(rollups[0].thread_uid, id2);
   assert.equal(rollups[0].cluster_id, clusterId);
