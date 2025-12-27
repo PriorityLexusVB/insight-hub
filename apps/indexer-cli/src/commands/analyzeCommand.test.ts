@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import vm from "node:vm";
 
 import {
   computeCDI,
@@ -238,6 +239,17 @@ This should emit HTML.
   const html = await fs.readFile(path.join(outDir, "index.html"), "utf8");
   assert.ok(html.includes("Work-only"));
   assert.ok(html.includes('<th data-k="title">Title'));
+
+  // Regression: the inline dashboard script must be syntactically valid.
+  const scripts: Array<{ attrs: string; body: string }> = [];
+  const re = /<script(\s+[^>]*)?>([\s\S]*?)<\/script>/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(html))) {
+    scripts.push({ attrs: m[1] ?? "", body: m[2] ?? "" });
+  }
+  assert.equal(scripts.length, 2);
+  assert.ok(/\ssrc=/.test(scripts[0].attrs));
+  assert.doesNotThrow(() => new vm.Script(scripts[1].body));
 });
 
 test("toChatIndexCsv emits correct header", () => {

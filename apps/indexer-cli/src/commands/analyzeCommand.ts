@@ -308,7 +308,7 @@ function renderAnalyticsIndexHtml(): string {
         function textOfRow(r) {
           const apps = Array.isArray(r.apps) ? r.apps.join(' ') : String(r.apps || '');
           const tags = Array.isArray(r.tags) ? r.tags.join(' ') : String(r.tags || '');
-          return [r.title, r.domain, apps, tags, r.primary_home_file].join('\n').toLowerCase();
+          return [r.title, r.domain, apps, tags, r.primary_home_file].join(' ').toLowerCase();
         }
 
         function passesFilters(r) {
@@ -375,7 +375,7 @@ function renderAnalyticsIndexHtml(): string {
           return '../../thread-vault/threads/' + encodeURIComponent(uid) + '.md';
         }
         function docHref(p) {
-          const norm = String(p || '').replace(/\\/g, '/');
+          const norm = String(p || '').replace(/\\\\/g, '/');
           return '../../' + norm;
         }
 
@@ -457,10 +457,10 @@ function renderAnalyticsIndexHtml(): string {
             const k = th.getAttribute('data-k');
             th.classList.toggle('sortActive', k === state.sortKey);
             if (k === state.sortKey) {
-              th.textContent = th.textContent.replace(/\s[▲▼]$/, '');
+              th.textContent = th.textContent.replace(/\\s[▲▼]$/, '');
               th.textContent = th.textContent + (state.sortDir === 'asc' ? ' ▲' : ' ▼');
             } else {
-              th.textContent = th.textContent.replace(/\s[▲▼]$/, '');
+              th.textContent = th.textContent.replace(/\\s[▲▼]$/, '');
             }
           });
         }
