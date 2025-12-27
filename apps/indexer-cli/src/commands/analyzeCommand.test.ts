@@ -6,7 +6,8 @@ import path from "node:path";
 
 import {
   computeCDI,
-  classifyWorkType,
+  classifyWork,
+  parseFrontMatterYaml,
   runAnalyzeCommand,
   toChatIndexCsv,
   type ChatIndexRow,
@@ -14,32 +15,63 @@ import {
 
 test("CDI formula matches spec", () => {
   // CDI = ((emdash + constraint) / max(1, word_count)) * 1000
-  const cdi = computeCDI({ wordCount: 100, emdashCount: 2, constraintCount: 3 });
+  const cdi = computeCDI({
+    wordCount: 100,
+    emdashCount: 2,
+    constraintCount: 3,
+  });
   assert.equal(cdi, 50);
 
-  const cdiMin = computeCDI({ wordCount: 0, emdashCount: 1, constraintCount: 0 });
+  const cdiMin = computeCDI({
+    wordCount: 0,
+    emdashCount: 1,
+    constraintCount: 0,
+  });
   assert.equal(cdiMin, 1000);
 });
 
-test("work_type classifier is deterministic", () => {
-  assert.deepEqual(classifyWorkType("pnpm build failed on github PR"), {
-    is_work: true,
-    work_type: "technical",
-  });
+test("parseFrontMatterYaml handles nested router + arrays", () => {
+  const md = `---
+thread_uid: 11111111-1111-1111-1111-111111111111
+title: Hello
+domain: dealership_ops
+apps: ["indexer-cli", "github"]
+tags:
+  - ops
+  - tooling
+router:
+  primary_home:
+    file: docs/infra/INDEX.md
+    section: Overview
+  confidence: 0.92
+merge:
+  cluster_id: CL-00012
+---
 
-  assert.deepEqual(classifyWorkType("need a brochure design in canva"), {
-    is_work: true,
-    work_type: "creative",
-  });
+Body text.
+`;
 
-  assert.deepEqual(classifyWorkType("watchlist: movie thriller"), {
-    is_work: false,
-    work_type: "entertainment",
+  const { meta, body } = parseFrontMatterYaml(md);
+  assert.equal(meta.thread_uid, "11111111-1111-1111-1111-111111111111");
+  assert.equal(meta.router.primary_home.file, "docs/infra/INDEX.md");
+  assert.equal(meta.router.confidence, 0.92);
+  assert.deepEqual(meta.apps, ["indexer-cli", "github"]);
+  assert.ok(body.includes("Body text."));
+});
+
+test("classifier honors domain dealership_* => ops", () => {
+  const res = classifyWork({
+    meta: { domain: "dealership_ops" },
+    title: "Random",
+    bodyText: "Unrelated",
   });
+  assert.deepEqual(res, { is_work: true, work_type: "ops" });
 });
 
 test("analyze creates outputs and CSV header is correct", async () => {
-  const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "insight-hub-analyze-"));
+  const tmpRoot = await fs.mkdtemp(
+    path.join(os.tmpdir(), "insight-hub-analyze-")
+  );
   const threadVault = path.join(tmpRoot, "thread-vault");
   const threads = path.join(threadVault, "threads");
   const outDir = path.join(tmpRoot, "analytics", "_dev");
@@ -47,7 +79,30 @@ test("analyze creates outputs and CSV header is correct", async () => {
   await fs.mkdir(threads, { recursive: true });
 
   const threadId = "11111111-1111-1111-1111-111111111111";
-  const md = `---\nthread_uid: ${threadId}\ntitle: Test Thread\n---\n\n## Summary\nThis conversation should verify edge case behavior — do not break.\n\n\n\`\`\`\ncode block should not count words\n\`\`\`\n`;
+  const md = `---
+thread_uid: ${threadId}
+title: Test Thread
+created_at: 2025-01-01T00:00:00.000Z
+last_active_at: 2025-01-01T01:00:00.000Z
+domain: dealership_ops
+apps: ["indexer-cli"]
+tags: ["ops", "tooling"]
+router:
+  primary_home:
+    file: docs/infra/INDEX.md
+    section: Overview
+  confidence: 0.92
+merge:
+  cluster_id: CL-00012
+---
+
+## Summary
+This conversation should verify edge case behavior — do not break.
+
+\`\`\`
+code block should not count words
+\`\`\`
+`;
   await fs.writeFile(path.join(threads, `${threadId}.md`), md, "utf8");
 
   await runAnalyzeCommand({
@@ -76,19 +131,26 @@ test("analyze creates outputs and CSV header is correct", async () => {
   assert.equal(
     header,
     [
-      "thread_id",
+      "thread_uid",
       "title",
+      "domain",
+      "apps",
+      "tags",
+      "primary_home_file",
+      "primary_home_section",
+      "router_confidence",
+      "cluster_id",
       "word_count",
       "emdash_count",
       "constraint_count",
       "CDI",
-      "messages_total",
-      "messages_user",
-      "messages_assistant",
       "turns_total",
-      "CWID",
-      "system_maturity",
-      "cognitive_load",
+      "user_turns",
+      "assistant_turns",
+      "cwid",
+      "cwid_is_proxy",
+      "maturity_score",
+      "load_score",
       "is_work",
       "work_type",
     ].join(",")
@@ -98,24 +160,34 @@ test("analyze creates outputs and CSV header is correct", async () => {
 test("toChatIndexCsv emits correct header", () => {
   const rows: ChatIndexRow[] = [
     {
-      thread_id: "t",
+      thread_uid: "t",
       title: "x",
+      created_at: null,
+      last_active_at: null,
+      domain: "",
+      apps: [],
+      tags: [],
+      primary_home_file: "",
+      primary_home_section: "",
+      router_confidence: null,
+      cluster_id: "",
       word_count: 1,
       emdash_count: 0,
       constraint_count: 0,
       CDI: 0,
-      messages_total: null,
-      messages_user: null,
-      messages_assistant: null,
       turns_total: null,
-      CWID: null,
-      system_maturity: 0,
-      cognitive_load: 0,
+      user_turns: null,
+      assistant_turns: null,
+      messages_total: null,
+      cwid: null,
+      cwid_is_proxy: true,
+      maturity_score: 0,
+      load_score: 0,
       is_work: false,
       work_type: "unknown",
     },
   ];
 
   const csv = toChatIndexCsv(rows);
-  assert.ok(csv.startsWith("thread_id,title,word_count,"));
+  assert.ok(csv.startsWith("thread_uid,title,domain,apps,tags,"));
 });

@@ -15,21 +15,35 @@ export type WorkType =
   | "unknown";
 
 export type ChatIndexRow = {
-  thread_id: string;
+  thread_uid: string;
   title: string;
+
+  // Metadata from front matter
+  created_at: string | null;
+  last_active_at: string | null;
+  domain: string;
+  apps: string[];
+  tags: string[];
+  primary_home_file: string;
+  primary_home_section: string;
+  router_confidence: number | null;
+  cluster_id: string;
+
   word_count: number;
   emdash_count: number;
   constraint_count: number;
   CDI: number;
 
-  messages_total: number | null;
-  messages_user: number | null;
-  messages_assistant: number | null;
+  // Conversation-derived or proxy-derived
   turns_total: number | null;
-  CWID: number | null;
+  user_turns: number | null;
+  assistant_turns: number | null;
+  messages_total: number | null;
+  cwid: number | null;
+  cwid_is_proxy: boolean;
 
-  system_maturity: number;
-  cognitive_load: number;
+  maturity_score: number;
+  load_score: number;
 
   is_work: boolean;
   work_type: WorkType;
@@ -52,20 +66,23 @@ type AnalyzeOptions = {
   };
 };
 
-function detectEol(s: string): string {
-  return s.includes("\r\n") ? "\r\n" : "\n";
-}
+export function parseFrontMatterYaml(md: string): { meta: Frontmatter; body: string } {
+  // Robustly parse YAML front matter delimited by --- ... --- at start of file.
+  // Supports nested maps/arrays via js-yaml.
+  const match = md.match(/^---\s*\r?\n([\s\S]*?)\r?\n---\s*\r?\n?/);
+  if (!match) return { meta: {}, body: md };
 
-function splitFrontmatter(md: string): Frontmatter | null {
-  if (!md.startsWith("---")) return null;
-  const end = md.indexOf("\n---", 3);
-  if (end === -1) return null;
-  const fm = md.slice(3, end).trim();
+  const fm = match[1];
+  let meta: Frontmatter = {};
   try {
-    return (yaml.load(fm) as Frontmatter) || null;
+    const loaded = yaml.load(fm);
+    if (loaded && typeof loaded === "object") meta = loaded as Frontmatter;
   } catch {
-    return null;
+    meta = {};
   }
+
+  const body = md.slice(match[0].length);
+  return { meta, body };
 }
 
 function stripCodeFences(md: string): string {
@@ -94,6 +111,10 @@ const CONSTRAINT_RE = new RegExp(
     "\\brollback\\b",
     "\\bguardrail\\b",
     "\\bedge case\\b",
+    "\\bacceptance criteria\\b",
+    "\\bnext actions\\b",
+    "\\bchecklist\\b",
+    "\\bsop\\b",
   ].join("|"),
   "gi"
 );
@@ -107,8 +128,66 @@ export function computeCDI(params: {
   return ((params.emdashCount + params.constraintCount) / denom) * 1000;
 }
 
-export function classifyWorkType(text: string): { is_work: boolean; work_type: WorkType } {
-  const t = (text || "").toLowerCase();
+function normalizeStringList(v: unknown): string[] {
+  if (Array.isArray(v)) return v.map((x) => String(x)).filter(Boolean);
+  if (typeof v === "string") return [v].filter(Boolean);
+  return [];
+}
+
+function safeString(v: unknown): string {
+  if (typeof v === "string") return v;
+  if (v === null || v === undefined) return "";
+  return String(v);
+}
+
+function pathStartsWithDocsSection(p: string, prefix: string): boolean {
+  const norm = (p || "").replace(/\\/g, "/");
+  return norm.startsWith(prefix);
+}
+
+export function classifyWork(params: {
+  meta: Frontmatter;
+  title: string;
+  bodyText: string;
+}): { is_work: boolean; work_type: WorkType } {
+  const domain = safeString(params.meta.domain).toLowerCase();
+  const apps = normalizeStringList(params.meta.apps).map((x) => x.toLowerCase());
+  const router = (params.meta.router && typeof params.meta.router === "object")
+    ? (params.meta.router as any)
+    : null;
+  const primaryFile = safeString(router?.primary_home?.file);
+
+  // Strong YAML signals first.
+  if (domain.startsWith("dealership_")) {
+    return { is_work: true, work_type: "ops" };
+  }
+
+  if (primaryFile) {
+    if (pathStartsWithDocsSection(primaryFile, "docs/marketing")) {
+      return { is_work: true, work_type: "comms" };
+    }
+    if (pathStartsWithDocsSection(primaryFile, "docs/infra")) {
+      return { is_work: true, work_type: "technical" };
+    }
+  }
+
+  if (apps.length) {
+    // If apps are present and not obviously personal/entertainment, treat as work.
+    const personalish = apps.some((a) =>
+      ["netflix", "spotify", "movie", "watchlist", "personal"].some((k) => a.includes(k))
+    );
+    if (!personalish) {
+      const technicalish = apps.some((a) =>
+        ["github", "vscode", "node", "typescript", "firebase", "supabase"].some((k) =>
+          a.includes(k)
+        )
+      );
+      return { is_work: true, work_type: technicalish ? "technical" : "ops" };
+    }
+  }
+
+  // Keyword fallback on title + body.
+  const t = `${params.title}\n${params.bodyText}`.toLowerCase();
 
   const hasAny = (words: string[]): boolean => words.some((w) => t.includes(w));
 
@@ -133,20 +212,55 @@ export function classifyWorkType(text: string): { is_work: boolean; work_type: W
       " ts ",
       "build",
       "deploy",
+      "firebase",
+      "supabase",
     ])
   ) {
     return { is_work: true, work_type: "technical" };
   }
 
-  if (hasAny(["brochure", "poster", "design", "canva", "figma", "slide", "deck", "logo"])) {
+  if (
+    hasAny([
+      "brochure",
+      "poster",
+      "design",
+      "canva",
+      "figma",
+      "slide",
+      "deck",
+      "logo",
+    ])
+  ) {
     return { is_work: true, work_type: "creative" };
   }
 
-  if (hasAny(["hire", "onboarding", "training", "team", "manager", "coaching", "accountability"])) {
+  if (
+    hasAny([
+      "hire",
+      "onboarding",
+      "training",
+      "coach",
+      "team",
+      "manager",
+      "coaching",
+      "accountability",
+    ])
+  ) {
     return { is_work: true, work_type: "leadership" };
   }
 
-  if (hasAny(["process", "sop", "checklist", "vendor", "schedule", "inventory", "crm", "dealership"])) {
+  if (
+    hasAny([
+      "process",
+      "sop",
+      "checklist",
+      "vendor",
+      "schedule",
+      "inventory",
+      "crm",
+      "dealership",
+    ])
+  ) {
     return { is_work: true, work_type: "ops" };
   }
 
@@ -154,48 +268,43 @@ export function classifyWorkType(text: string): { is_work: boolean; work_type: W
     return { is_work: true, work_type: "strategy" };
   }
 
-  if (hasAny(["email", "memo", "announcement", "stakeholder", "comms", "communication"])) {
+  if (
+    hasAny([
+      "email",
+      "memo",
+      "announcement",
+      "stakeholder",
+      "comms",
+      "communication",
+    ])
+  ) {
     return { is_work: true, work_type: "comms" };
   }
 
   return { is_work: false, work_type: "unknown" };
 }
 
-function computeSystemMaturity(md: string): number {
-  const t = (md || "").toLowerCase();
+function computeMaturityScore(bodyText: string): number {
+  const t = (bodyText || "").toLowerCase();
   let score = 0;
 
-  const headings = [
-    "checklist",
-    "sop",
-    "next steps",
-    "acceptance criteria",
-    "rollback",
-    "verify",
-  ];
-
-  for (const h of headings) {
-    if (t.includes(h)) score += 10;
-  }
-
-  const numberedSteps = (md.match(/^\s*\d+\.[ \t]+/gm) || []).length;
-  if (numberedSteps >= 3) score += 20;
-
-  const tableLines = (md.match(/^\s*\|.*\|\s*$/gm) || []).length;
-  if (tableLines >= 2) score += 10;
+  if (t.includes("checklist") || t.includes("sop")) score += 15;
+  if (t.includes("acceptance criteria") || t.includes("verify") || t.includes("rollback"))
+    score += 15;
+  if (/^\s*\d+\)\s+/m.test(bodyText)) score += 10;
+  if (bodyText.includes("|")) score += 10;
+  if (t.includes("next actions")) score += 10;
+  if (t.includes("owner:") || t.includes("cadence:") || t.includes("metrics:")) score += 10;
 
   return Math.max(0, Math.min(100, score));
 }
 
-function computeCognitiveLoad(params: {
+function computeLoadScore(params: {
   wordCount: number;
   CDI: number;
-  turnsTotal: number | null;
+  turns: number;
 }): number {
-  const turns = params.turnsTotal ?? 0;
-  const load =
-    params.wordCount * (1 + params.CDI / 1000) * (1 + turns / 50);
-  return load;
+  return params.wordCount * (1 + params.CDI / 1000) * (1 + params.turns / 50);
 }
 
 function csvEscape(value: unknown): string {
@@ -206,20 +315,28 @@ function csvEscape(value: unknown): string {
 }
 
 export function toChatIndexCsv(rows: ChatIndexRow[]): string {
+  // CSV contract (keep stable; drillable via JSON for extra fields).
   const header: Array<keyof ChatIndexRow> = [
-    "thread_id",
+    "thread_uid",
     "title",
+    "domain",
+    "apps",
+    "tags",
+    "primary_home_file",
+    "primary_home_section",
+    "router_confidence",
+    "cluster_id",
     "word_count",
     "emdash_count",
     "constraint_count",
     "CDI",
-    "messages_total",
-    "messages_user",
-    "messages_assistant",
     "turns_total",
-    "CWID",
-    "system_maturity",
-    "cognitive_load",
+    "user_turns",
+    "assistant_turns",
+    "cwid",
+    "cwid_is_proxy",
+    "maturity_score",
+    "load_score",
     "is_work",
     "work_type",
   ];
@@ -233,22 +350,18 @@ export function toChatIndexCsv(rows: ChatIndexRow[]): string {
 }
 
 async function findConversationDataFiles(root: string): Promise<string[]> {
-  const want = new Set([
-    "conversations.json",
-    "conversations.jsonl",
-    "conversations.ndjson",
-  ]);
-
-  const skip = new Set([
-    "node_modules",
-    ".git",
-    "dist",
-    "patches",
-    "thread-vault",
-    "analytics",
-  ]);
-
+  const skip = new Set(["node_modules", ".git", "dist", "patches", "thread-vault", "analytics"]);
   const out: string[] = [];
+
+  const rootsToScan = [
+    path.join(root, "imports"),
+    path.join(root, "data"),
+    path.join(root, "raw"),
+    path.join(root, "conversations"),
+    root,
+  ];
+
+  const seen = new Set<string>();
 
   async function walk(dir: string, depth: number): Promise<void> {
     if (depth > 4) return;
@@ -265,16 +378,37 @@ async function findConversationDataFiles(root: string): Promise<string[]> {
         await walk(path.join(dir, ent.name), depth + 1);
         continue;
       }
+
       if (!ent.isFile()) continue;
-      if (want.has(ent.name)) out.push(path.join(dir, ent.name));
+
+      const lower = ent.name.toLowerCase();
+      const isJson = lower.endsWith(".json") || lower.endsWith(".jsonl") || lower.endsWith(".ndjson");
+      if (!isJson) continue;
+
+      // Bias toward likely conversation dumps.
+      const looksRelevant =
+        lower.includes("conversation") || lower.includes("chat") || lower.includes("export");
+      if (!looksRelevant) continue;
+
+      const p = path.join(dir, ent.name);
+      if (seen.has(p)) continue;
+      seen.add(p);
+      out.push(p);
     }
   }
 
-  await walk(root, 0);
+  for (const r of rootsToScan) {
+    if (seen.has(r)) continue;
+    seen.add(r);
+    await walk(r, 0);
+  }
+
   return out;
 }
 
-function extractCountsFromConversationObject(obj: any): ConversationMessageCounts | null {
+function extractCountsFromConversationObject(
+  obj: any
+): ConversationMessageCounts | null {
   if (!obj || typeof obj !== "object") return null;
 
   const countRole = (role: string | null | undefined): void => {
@@ -384,9 +518,7 @@ async function loadMessageCountsByThreadId(params: {
 }
 
 function topN<T>(arr: T[], n: number, score: (x: T) => number): T[] {
-  return [...arr]
-    .sort((a, b) => score(b) - score(a))
-    .slice(0, n);
+  return [...arr].sort((a, b) => score(b) - score(a)).slice(0, n);
 }
 
 function renderTopList(params: {
@@ -409,16 +541,36 @@ function renderTopList(params: {
 
   for (const r of top) {
     lines.push(
-      `- ${r.thread_id} — ${r.title} (${params.scoreLabel}=${params.score(r).toFixed(
-        2
-      )})`
+      `- ${r.thread_uid} — ${r.title} (${params.scoreLabel}=${params.score(r).toFixed(2)})`
     );
   }
   lines.push("");
   return lines.join("\n");
 }
 
-export async function runAnalyzeCommand(opts: AnalyzeOptions = {}): Promise<void> {
+function avg(nums: Array<number | null | undefined>): number {
+  const v = nums.filter((x): x is number => typeof x === "number" && Number.isFinite(x));
+  if (!v.length) return 0;
+  return v.reduce((a, b) => a + b, 0) / v.length;
+}
+
+function clamp(n: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, n));
+}
+
+function approxTurnsFromDates(createdAtIso: string | null, lastActiveAtIso: string | null): number | null {
+  if (!createdAtIso || !lastActiveAtIso) return null;
+  const a = new Date(createdAtIso);
+  const b = new Date(lastActiveAtIso);
+  if (!Number.isFinite(a.getTime()) || !Number.isFinite(b.getTime())) return null;
+  const minutes = Math.max(0, Math.round((b.getTime() - a.getTime()) / 60000));
+  const approx = Math.round(minutes / 2);
+  return clamp(approx, 2, 60);
+}
+
+export async function runAnalyzeCommand(
+  opts: AnalyzeOptions = {}
+): Promise<void> {
   const root = opts.paths?.repoRoot ?? repoRoot();
   const threadsPath = opts.paths?.threadsDir ?? threadsDir();
 
@@ -449,14 +601,32 @@ export async function runAnalyzeCommand(opts: AnalyzeOptions = {}): Promise<void
   const rows: ChatIndexRow[] = [];
 
   for (const file of threadFiles) {
-    const threadId = file.replace(/\.md$/i, "");
+    const threadFileId = file.replace(/\.md$/i, "");
     const abs = path.join(threadsPath, file);
     const md = await fs.readFile(abs, "utf8");
 
-    const fm = splitFrontmatter(md) || {};
-    const title = String(fm.title ?? "").trim() || "Untitled";
+    const { meta, body } = parseFrontMatterYaml(md);
+    const threadUid = safeString(meta.thread_uid).trim() || threadFileId;
+    const title = safeString(meta.title).trim() || "Untitled";
 
-    const body = md.includes("---") ? md.slice(md.indexOf("\n---", 3) + 4) : md;
+    const createdAt = safeString(meta.created_at).trim() || null;
+    const lastActiveAt = safeString(meta.last_active_at).trim() || null;
+    const domain = safeString(meta.domain).trim();
+    const apps = normalizeStringList(meta.apps);
+    const tags = normalizeStringList(meta.tags);
+
+    const router = (meta.router && typeof meta.router === "object") ? (meta.router as any) : null;
+    const primaryHomeFile = safeString(router?.primary_home?.file).trim();
+    const primaryHomeSection = safeString(router?.primary_home?.section).trim();
+    const routerConfidenceRaw = router?.confidence;
+    const routerConfidence =
+      typeof routerConfidenceRaw === "number" && Number.isFinite(routerConfidenceRaw)
+        ? routerConfidenceRaw
+        : null;
+
+    const merge = (meta.merge && typeof meta.merge === "object") ? (meta.merge as any) : null;
+    const clusterId = safeString(merge?.cluster_id).trim();
+
     const bodyNoCode = stripCodeFences(body);
 
     const emdashCount = (bodyNoCode.match(/—/g) || []).length;
@@ -468,35 +638,49 @@ export async function runAnalyzeCommand(opts: AnalyzeOptions = {}): Promise<void
       constraintCount,
     });
 
-    const counts = messageCountsById.get(threadId) || null;
+    const counts = messageCountsById.get(threadUid) || messageCountsById.get(threadFileId) || null;
     const turnsTotal = counts ? counts.messages_total : null;
 
-    const CWID = turnsTotal !== null ? turnsTotal * CDI : null;
+    const approxTurns = approxTurnsFromDates(createdAt, lastActiveAt);
+    const turnsForLoad = turnsTotal ?? approxTurns ?? 0;
 
-    const systemMaturity = computeSystemMaturity(bodyNoCode);
-    const cognitiveLoad = computeCognitiveLoad({
-      wordCount,
-      CDI,
-      turnsTotal,
-    });
+    const cwidIsProxy = turnsTotal === null;
+    const cwid =
+      turnsTotal !== null
+        ? turnsTotal * CDI
+        : approxTurns !== null
+          ? approxTurns * CDI
+          : null;
 
-    const classText = `${title}\n${bodyNoCode}`;
-    const { is_work, work_type } = classifyWorkType(classText);
+    const maturityScore = computeMaturityScore(bodyNoCode);
+    const loadScore = computeLoadScore({ wordCount, CDI, turns: turnsForLoad });
+
+    const { is_work, work_type } = classifyWork({ meta, title, bodyText: bodyNoCode });
 
     rows.push({
-      thread_id: threadId,
+      thread_uid: threadUid,
       title,
+      created_at: createdAt,
+      last_active_at: lastActiveAt,
+      domain,
+      apps,
+      tags,
+      primary_home_file: primaryHomeFile,
+      primary_home_section: primaryHomeSection,
+      router_confidence: routerConfidence,
+      cluster_id: clusterId,
       word_count: wordCount,
       emdash_count: emdashCount,
       constraint_count: constraintCount,
       CDI,
-      messages_total: counts ? counts.messages_total : null,
-      messages_user: counts ? counts.messages_user : null,
-      messages_assistant: counts ? counts.messages_assistant : null,
       turns_total: turnsTotal,
-      CWID,
-      system_maturity: systemMaturity,
-      cognitive_load: cognitiveLoad,
+      user_turns: counts ? counts.messages_user : null,
+      assistant_turns: counts ? counts.messages_assistant : null,
+      messages_total: counts ? counts.messages_total : null,
+      cwid,
+      cwid_is_proxy: cwidIsProxy,
+      maturity_score: maturityScore,
+      load_score: loadScore,
       is_work,
       work_type,
     });
@@ -509,47 +693,47 @@ export async function runAnalyzeCommand(opts: AnalyzeOptions = {}): Promise<void
   await fs.writeFile(chatIndexCsv, toChatIndexCsv(rows), "utf8");
 
   const workOnlyRows = rows.filter(
-    (r) => r.is_work && r.work_type !== "entertainment" && r.work_type !== "personal"
+    (r) =>
+      r.is_work && r.work_type !== "entertainment" && r.work_type !== "personal"
   );
 
   const workOnlyCsv = path.join(outDir, "work_only.csv");
   await fs.writeFile(workOnlyCsv, toChatIndexCsv(workOnlyRows), "utf8");
 
-  const summaryScope = opts.workOnly ? workOnlyRows : rows.filter((r) => r.is_work);
-
   const workSummaryMd = path.join(outDir, "work_summary.md");
   const workSummaryLines: string[] = [];
   workSummaryLines.push("# Work Summary");
   workSummaryLines.push("");
-  workSummaryLines.push(
-    `Scope: ${opts.workOnly ? "work-only" : "is_work"} threads. Count=${summaryScope.length}`
-  );
+  const workRows = rows.filter((r) => r.is_work);
+  workSummaryLines.push(`Total threads: ${rows.length}`);
+  workSummaryLines.push(`Work threads (is_work): ${workRows.length}`);
+  workSummaryLines.push(`Work-only threads: ${workOnlyRows.length}`);
   workSummaryLines.push("");
   workSummaryLines.push(
     renderTopList({
       title: "Top 10 CWID",
-      rows: summaryScope,
+      rows: workOnlyRows,
       n: 10,
       scoreLabel: "CWID",
-      score: (r) => r.CWID ?? 0,
+      score: (r) => r.cwid ?? 0,
     })
   );
   workSummaryLines.push(
     renderTopList({
       title: "Top 10 Cognitive Load",
-      rows: summaryScope,
+      rows: workOnlyRows,
       n: 10,
       scoreLabel: "Load",
-      score: (r) => r.cognitive_load,
+      score: (r) => r.load_score,
     })
   );
   workSummaryLines.push(
     renderTopList({
       title: "Top 10 System Maturity",
-      rows: summaryScope,
+      rows: workOnlyRows,
       n: 10,
       scoreLabel: "Maturity",
-      score: (r) => r.system_maturity,
+      score: (r) => r.maturity_score,
     })
   );
 
@@ -560,33 +744,29 @@ export async function runAnalyzeCommand(opts: AnalyzeOptions = {}): Promise<void
   leadLines.push("# Leadership vs Builder");
   leadLines.push("");
 
-  const scope = opts.workOnly ? workOnlyRows : rows;
-  const leaders = scope.filter((r) => r.work_type === "leadership" || r.work_type === "ops");
-  const builders = scope.filter((r) => r.work_type === "technical" || r.work_type === "creative");
+  const scopeForCompare = opts.workOnly ? workOnlyRows : workRows;
+  const leadership = scopeForCompare.filter((r) => r.work_type === "leadership");
+  const builder = scopeForCompare.filter((r) => r.work_type === "technical" || r.work_type === "ops");
 
-  leadLines.push(`Scope threads: ${scope.length}`);
-  leadLines.push(`Leadership/ops: ${leaders.length}`);
-  leadLines.push(`Builder (technical/creative): ${builders.length}`);
+  leadLines.push(`Scope threads: ${scopeForCompare.length}`);
   leadLines.push("");
-
+  leadLines.push("| cohort | count | avg CDI | avg CWID | avg maturity | avg load |");
+  leadLines.push("|---|---:|---:|---:|---:|---:|");
   leadLines.push(
-    renderTopList({
-      title: "Top 10 Leadership CWID",
-      rows: leaders,
-      n: 10,
-      scoreLabel: "CWID",
-      score: (r) => r.CWID ?? 0,
-    })
+    `| leadership | ${leadership.length} | ${avg(leadership.map((r) => r.CDI)).toFixed(2)} | ${avg(
+      leadership.map((r) => r.cwid)
+    ).toFixed(2)} | ${avg(leadership.map((r) => r.maturity_score)).toFixed(2)} | ${avg(
+      leadership.map((r) => r.load_score)
+    ).toFixed(2)} |`
   );
   leadLines.push(
-    renderTopList({
-      title: "Top 10 Builder CWID",
-      rows: builders,
-      n: 10,
-      scoreLabel: "CWID",
-      score: (r) => r.CWID ?? 0,
-    })
+    `| technical/ops | ${builder.length} | ${avg(builder.map((r) => r.CDI)).toFixed(2)} | ${avg(
+      builder.map((r) => r.cwid)
+    ).toFixed(2)} | ${avg(builder.map((r) => r.maturity_score)).toFixed(2)} | ${avg(
+      builder.map((r) => r.load_score)
+    ).toFixed(2)} |`
   );
+  leadLines.push("");
 
   await fs.writeFile(leadershipVsBuilderMd, leadLines.join("\n"), "utf8");
 
@@ -594,45 +774,44 @@ export async function runAnalyzeCommand(opts: AnalyzeOptions = {}): Promise<void
   const auditLines: string[] = [];
   auditLines.push("# Leverage Audit");
   auditLines.push("");
+  const scopeForAudit = opts.workOnly ? workOnlyRows : workRows;
   auditLines.push(
-    `Heuristic: high cognitive load + low maturity = good SOP candidate. Scope=${scope.length}`
+    `Heuristic: high load + low maturity = systematize. Scope=${scopeForAudit.length}`
   );
   auditLines.push("");
 
-  const sopCandidates = [...scope]
-    .filter((r) => r.is_work)
-    .sort((a, b) => b.cognitive_load - a.cognitive_load)
-    .filter((r) => r.system_maturity <= 30)
-    .slice(0, 10);
+  const sopCandidates = [...scopeForAudit]
+    .filter((r) => r.maturity_score <= 30)
+    .sort((a, b) => b.load_score - a.load_score)
+    .slice(0, 15);
 
-  auditLines.push("## Top 10 SOP candidates (high load, low maturity)");
+  auditLines.push("## Top 15 high load but low maturity");
   auditLines.push("");
   if (!sopCandidates.length) {
     auditLines.push("- (none)");
   } else {
     for (const r of sopCandidates) {
       auditLines.push(
-        `- ${r.thread_id} — ${r.title} (Load=${r.cognitive_load.toFixed(
-          2
-        )}, Maturity=${r.system_maturity}, CDI=${r.CDI.toFixed(2)})`
+        `- ${r.thread_uid} — ${r.title} (Load=${r.load_score.toFixed(2)}, Maturity=${
+          r.maturity_score
+        }, CDI=${r.CDI.toFixed(2)})`
       );
     }
   }
   auditLines.push("");
 
-  const bestSystems = [...scope]
-    .filter((r) => r.is_work)
-    .sort((a, b) => b.system_maturity - a.system_maturity)
-    .slice(0, 10);
+  const bestSystems = [...scopeForAudit]
+    .sort((a, b) => b.maturity_score - a.maturity_score)
+    .slice(0, 15);
 
-  auditLines.push("## Top 10 most mature (system indicators)");
+  auditLines.push("## Top 15 high maturity (candidate SOP templates)");
   auditLines.push("");
   if (!bestSystems.length) {
     auditLines.push("- (none)");
   } else {
     for (const r of bestSystems) {
       auditLines.push(
-        `- ${r.thread_id} — ${r.title} (Maturity=${r.system_maturity}, Load=${r.cognitive_load.toFixed(
+        `- ${r.thread_uid} — ${r.title} (Maturity=${r.maturity_score}, Load=${r.load_score.toFixed(
           2
         )})`
       );
@@ -648,5 +827,5 @@ export async function runAnalyzeCommand(opts: AnalyzeOptions = {}): Promise<void
 export const __test__ = {
   stripCodeFences,
   countWords,
-  computeSystemMaturity,
+  computeMaturityScore,
 };
