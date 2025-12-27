@@ -1,0 +1,23 @@
+# exports (ChatGPT zip, etc.)
+exports/
+*.zip
+
+# generated outputs (keep local by default)
+thread-vault/
+patches/
+.cache/
+
+# node
+node_modules/
+dist/
+
+# env
+.env
+.env.local
+.aider*
+
+_local_backup/
+
+patches/
+
+patches/
