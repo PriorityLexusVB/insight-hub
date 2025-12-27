@@ -66,7 +66,10 @@ type AnalyzeOptions = {
   };
 };
 
-export function parseFrontMatterYaml(md: string): { meta: Frontmatter; body: string } {
+export function parseFrontMatterYaml(md: string): {
+  meta: Frontmatter;
+  body: string;
+} {
   // Robustly parse YAML front matter delimited by --- ... --- at start of file.
   // Supports nested maps/arrays via js-yaml.
   const match = md.match(/^---\s*\r?\n([\s\S]*?)\r?\n---\s*\r?\n?/);
@@ -151,10 +154,13 @@ export function classifyWork(params: {
   bodyText: string;
 }): { is_work: boolean; work_type: WorkType } {
   const domain = safeString(params.meta.domain).toLowerCase();
-  const apps = normalizeStringList(params.meta.apps).map((x) => x.toLowerCase());
-  const router = (params.meta.router && typeof params.meta.router === "object")
-    ? (params.meta.router as any)
-    : null;
+  const apps = normalizeStringList(params.meta.apps).map((x) =>
+    x.toLowerCase()
+  );
+  const router =
+    params.meta.router && typeof params.meta.router === "object"
+      ? (params.meta.router as any)
+      : null;
   const primaryFile = safeString(router?.primary_home?.file);
 
   // Strong YAML signals first.
@@ -169,17 +175,25 @@ export function classifyWork(params: {
     if (pathStartsWithDocsSection(primaryFile, "docs/infra")) {
       return { is_work: true, work_type: "technical" };
     }
+    if (pathStartsWithDocsSection(primaryFile, "docs/personal")) {
+      return { is_work: false, work_type: "personal" };
+    }
+    if (pathStartsWithDocsSection(primaryFile, "docs/movies")) {
+      return { is_work: false, work_type: "entertainment" };
+    }
   }
 
   if (apps.length) {
     // If apps are present and not obviously personal/entertainment, treat as work.
     const personalish = apps.some((a) =>
-      ["netflix", "spotify", "movie", "watchlist", "personal"].some((k) => a.includes(k))
+      ["netflix", "spotify", "movie", "watchlist", "personal"].some((k) =>
+        a.includes(k)
+      )
     );
     if (!personalish) {
       const technicalish = apps.some((a) =>
-        ["github", "vscode", "node", "typescript", "firebase", "supabase"].some((k) =>
-          a.includes(k)
+        ["github", "vscode", "node", "typescript", "firebase", "supabase"].some(
+          (k) => a.includes(k)
         )
       );
       return { is_work: true, work_type: technicalish ? "technical" : "ops" };
@@ -289,12 +303,17 @@ function computeMaturityScore(bodyText: string): number {
   let score = 0;
 
   if (t.includes("checklist") || t.includes("sop")) score += 15;
-  if (t.includes("acceptance criteria") || t.includes("verify") || t.includes("rollback"))
+  if (
+    t.includes("acceptance criteria") ||
+    t.includes("verify") ||
+    t.includes("rollback")
+  )
     score += 15;
   if (/^\s*\d+\)\s+/m.test(bodyText)) score += 10;
   if (bodyText.includes("|")) score += 10;
   if (t.includes("next actions")) score += 10;
-  if (t.includes("owner:") || t.includes("cadence:") || t.includes("metrics:")) score += 10;
+  if (t.includes("owner:") || t.includes("cadence:") || t.includes("metrics:"))
+    score += 10;
 
   return Math.max(0, Math.min(100, score));
 }
@@ -309,7 +328,22 @@ function computeLoadScore(params: {
 
 function csvEscape(value: unknown): string {
   if (value === null || value === undefined) return "";
-  const s = String(value);
+  let s: string;
+
+  if (Array.isArray(value)) {
+    // Keep list-ish fields drillable and unambiguous in CSV.
+    s = JSON.stringify(value);
+  } else if (typeof value === "object") {
+    // Not expected in the stable CSV contract, but keep behavior deterministic.
+    try {
+      s = JSON.stringify(value);
+    } catch {
+      s = String(value);
+    }
+  } else {
+    s = String(value);
+  }
+
   if (/[\r\n,\"]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
   return s;
 }
@@ -350,7 +384,14 @@ export function toChatIndexCsv(rows: ChatIndexRow[]): string {
 }
 
 async function findConversationDataFiles(root: string): Promise<string[]> {
-  const skip = new Set(["node_modules", ".git", "dist", "patches", "thread-vault", "analytics"]);
+  const skip = new Set([
+    "node_modules",
+    ".git",
+    "dist",
+    "patches",
+    "thread-vault",
+    "analytics",
+  ]);
   const out: string[] = [];
 
   const rootsToScan = [
@@ -365,7 +406,11 @@ async function findConversationDataFiles(root: string): Promise<string[]> {
 
   async function walk(dir: string, depth: number): Promise<void> {
     if (depth > 4) return;
-    let entries: Array<{ name: string; isDirectory(): boolean; isFile(): boolean }> = [];
+    let entries: Array<{
+      name: string;
+      isDirectory(): boolean;
+      isFile(): boolean;
+    }> = [];
     try {
       entries = await fs.readdir(dir, { withFileTypes: true });
     } catch {
@@ -382,12 +427,17 @@ async function findConversationDataFiles(root: string): Promise<string[]> {
       if (!ent.isFile()) continue;
 
       const lower = ent.name.toLowerCase();
-      const isJson = lower.endsWith(".json") || lower.endsWith(".jsonl") || lower.endsWith(".ndjson");
+      const isJson =
+        lower.endsWith(".json") ||
+        lower.endsWith(".jsonl") ||
+        lower.endsWith(".ndjson");
       if (!isJson) continue;
 
       // Bias toward likely conversation dumps.
       const looksRelevant =
-        lower.includes("conversation") || lower.includes("chat") || lower.includes("export");
+        lower.includes("conversation") ||
+        lower.includes("chat") ||
+        lower.includes("export");
       if (!looksRelevant) continue;
 
       const p = path.join(dir, ent.name);
@@ -541,7 +591,9 @@ function renderTopList(params: {
 
   for (const r of top) {
     lines.push(
-      `- ${r.thread_uid} — ${r.title} (${params.scoreLabel}=${params.score(r).toFixed(2)})`
+      `- ${r.thread_uid} — ${r.title} (${params.scoreLabel}=${params
+        .score(r)
+        .toFixed(2)})`
     );
   }
   lines.push("");
@@ -549,7 +601,9 @@ function renderTopList(params: {
 }
 
 function avg(nums: Array<number | null | undefined>): number {
-  const v = nums.filter((x): x is number => typeof x === "number" && Number.isFinite(x));
+  const v = nums.filter(
+    (x): x is number => typeof x === "number" && Number.isFinite(x)
+  );
   if (!v.length) return 0;
   return v.reduce((a, b) => a + b, 0) / v.length;
 }
@@ -558,11 +612,15 @@ function clamp(n: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, n));
 }
 
-function approxTurnsFromDates(createdAtIso: string | null, lastActiveAtIso: string | null): number | null {
+function approxTurnsFromDates(
+  createdAtIso: string | null,
+  lastActiveAtIso: string | null
+): number | null {
   if (!createdAtIso || !lastActiveAtIso) return null;
   const a = new Date(createdAtIso);
   const b = new Date(lastActiveAtIso);
-  if (!Number.isFinite(a.getTime()) || !Number.isFinite(b.getTime())) return null;
+  if (!Number.isFinite(a.getTime()) || !Number.isFinite(b.getTime()))
+    return null;
   const minutes = Math.max(0, Math.round((b.getTime() - a.getTime()) / 60000));
   const approx = Math.round(minutes / 2);
   return clamp(approx, 2, 60);
@@ -615,16 +673,21 @@ export async function runAnalyzeCommand(
     const apps = normalizeStringList(meta.apps);
     const tags = normalizeStringList(meta.tags);
 
-    const router = (meta.router && typeof meta.router === "object") ? (meta.router as any) : null;
+    const router =
+      meta.router && typeof meta.router === "object"
+        ? (meta.router as any)
+        : null;
     const primaryHomeFile = safeString(router?.primary_home?.file).trim();
     const primaryHomeSection = safeString(router?.primary_home?.section).trim();
     const routerConfidenceRaw = router?.confidence;
     const routerConfidence =
-      typeof routerConfidenceRaw === "number" && Number.isFinite(routerConfidenceRaw)
+      typeof routerConfidenceRaw === "number" &&
+      Number.isFinite(routerConfidenceRaw)
         ? routerConfidenceRaw
         : null;
 
-    const merge = (meta.merge && typeof meta.merge === "object") ? (meta.merge as any) : null;
+    const merge =
+      meta.merge && typeof meta.merge === "object" ? (meta.merge as any) : null;
     const clusterId = safeString(merge?.cluster_id).trim();
 
     const bodyNoCode = stripCodeFences(body);
@@ -638,7 +701,10 @@ export async function runAnalyzeCommand(
       constraintCount,
     });
 
-    const counts = messageCountsById.get(threadUid) || messageCountsById.get(threadFileId) || null;
+    const counts =
+      messageCountsById.get(threadUid) ||
+      messageCountsById.get(threadFileId) ||
+      null;
     const turnsTotal = counts ? counts.messages_total : null;
 
     const approxTurns = approxTurnsFromDates(createdAt, lastActiveAt);
@@ -649,13 +715,17 @@ export async function runAnalyzeCommand(
       turnsTotal !== null
         ? turnsTotal * CDI
         : approxTurns !== null
-          ? approxTurns * CDI
-          : null;
+        ? approxTurns * CDI
+        : null;
 
     const maturityScore = computeMaturityScore(bodyNoCode);
     const loadScore = computeLoadScore({ wordCount, CDI, turns: turnsForLoad });
 
-    const { is_work, work_type } = classifyWork({ meta, title, bodyText: bodyNoCode });
+    const { is_work, work_type } = classifyWork({
+      meta,
+      title,
+      bodyText: bodyNoCode,
+    });
 
     rows.push({
       thread_uid: threadUid,
@@ -745,26 +815,32 @@ export async function runAnalyzeCommand(
   leadLines.push("");
 
   const scopeForCompare = opts.workOnly ? workOnlyRows : workRows;
-  const leadership = scopeForCompare.filter((r) => r.work_type === "leadership");
-  const builder = scopeForCompare.filter((r) => r.work_type === "technical" || r.work_type === "ops");
+  const leadership = scopeForCompare.filter(
+    (r) => r.work_type === "leadership"
+  );
+  const builder = scopeForCompare.filter(
+    (r) => r.work_type === "technical" || r.work_type === "ops"
+  );
 
   leadLines.push(`Scope threads: ${scopeForCompare.length}`);
   leadLines.push("");
-  leadLines.push("| cohort | count | avg CDI | avg CWID | avg maturity | avg load |");
+  leadLines.push(
+    "| cohort | count | avg CDI | avg CWID | avg maturity | avg load |"
+  );
   leadLines.push("|---|---:|---:|---:|---:|---:|");
   leadLines.push(
-    `| leadership | ${leadership.length} | ${avg(leadership.map((r) => r.CDI)).toFixed(2)} | ${avg(
-      leadership.map((r) => r.cwid)
-    ).toFixed(2)} | ${avg(leadership.map((r) => r.maturity_score)).toFixed(2)} | ${avg(
-      leadership.map((r) => r.load_score)
-    ).toFixed(2)} |`
+    `| leadership | ${leadership.length} | ${avg(
+      leadership.map((r) => r.CDI)
+    ).toFixed(2)} | ${avg(leadership.map((r) => r.cwid)).toFixed(2)} | ${avg(
+      leadership.map((r) => r.maturity_score)
+    ).toFixed(2)} | ${avg(leadership.map((r) => r.load_score)).toFixed(2)} |`
   );
   leadLines.push(
-    `| technical/ops | ${builder.length} | ${avg(builder.map((r) => r.CDI)).toFixed(2)} | ${avg(
-      builder.map((r) => r.cwid)
-    ).toFixed(2)} | ${avg(builder.map((r) => r.maturity_score)).toFixed(2)} | ${avg(
-      builder.map((r) => r.load_score)
-    ).toFixed(2)} |`
+    `| technical/ops | ${builder.length} | ${avg(
+      builder.map((r) => r.CDI)
+    ).toFixed(2)} | ${avg(builder.map((r) => r.cwid)).toFixed(2)} | ${avg(
+      builder.map((r) => r.maturity_score)
+    ).toFixed(2)} | ${avg(builder.map((r) => r.load_score)).toFixed(2)} |`
   );
   leadLines.push("");
 
@@ -792,9 +868,9 @@ export async function runAnalyzeCommand(
   } else {
     for (const r of sopCandidates) {
       auditLines.push(
-        `- ${r.thread_uid} — ${r.title} (Load=${r.load_score.toFixed(2)}, Maturity=${
-          r.maturity_score
-        }, CDI=${r.CDI.toFixed(2)})`
+        `- ${r.thread_uid} — ${r.title} (Load=${r.load_score.toFixed(
+          2
+        )}, Maturity=${r.maturity_score}, CDI=${r.CDI.toFixed(2)})`
       );
     }
   }
@@ -811,9 +887,9 @@ export async function runAnalyzeCommand(
   } else {
     for (const r of bestSystems) {
       auditLines.push(
-        `- ${r.thread_uid} — ${r.title} (Maturity=${r.maturity_score}, Load=${r.load_score.toFixed(
-          2
-        )})`
+        `- ${r.thread_uid} — ${r.title} (Maturity=${
+          r.maturity_score
+        }, Load=${r.load_score.toFixed(2)})`
       );
     }
   }

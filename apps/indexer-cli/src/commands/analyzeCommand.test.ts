@@ -68,6 +68,28 @@ test("classifier honors domain dealership_* => ops", () => {
   assert.deepEqual(res, { is_work: true, work_type: "ops" });
 });
 
+test("classifier honors docs/personal => personal (not work)", () => {
+  const res = classifyWork({
+    meta: {
+      router: { primary_home: { file: "docs/personal/INDEX.md" } },
+    },
+    title: "Random",
+    bodyText: "Unrelated",
+  });
+  assert.deepEqual(res, { is_work: false, work_type: "personal" });
+});
+
+test("classifier honors docs/movies => entertainment (not work)", () => {
+  const res = classifyWork({
+    meta: {
+      router: { primary_home: { file: "docs/movies/INDEX.md" } },
+    },
+    title: "Random",
+    bodyText: "Unrelated",
+  });
+  assert.deepEqual(res, { is_work: false, work_type: "entertainment" });
+});
+
 test("analyze creates outputs and CSV header is correct", async () => {
   const tmpRoot = await fs.mkdtemp(
     path.join(os.tmpdir(), "insight-hub-analyze-")
@@ -190,4 +212,42 @@ test("toChatIndexCsv emits correct header", () => {
 
   const csv = toChatIndexCsv(rows);
   assert.ok(csv.startsWith("thread_uid,title,domain,apps,tags,"));
+});
+
+test("toChatIndexCsv serializes arrays as JSON strings", () => {
+  const rows: ChatIndexRow[] = [
+    {
+      thread_uid: "t",
+      title: "x",
+      created_at: null,
+      last_active_at: null,
+      domain: "",
+      apps: ["a", "b"],
+      tags: ["t1"],
+      primary_home_file: "",
+      primary_home_section: "",
+      router_confidence: null,
+      cluster_id: "",
+      word_count: 1,
+      emdash_count: 0,
+      constraint_count: 0,
+      CDI: 0,
+      turns_total: null,
+      user_turns: null,
+      assistant_turns: null,
+      messages_total: null,
+      cwid: null,
+      cwid_is_proxy: true,
+      maturity_score: 0,
+      load_score: 0,
+      is_work: false,
+      work_type: "unknown",
+    },
+  ];
+
+  const csv = toChatIndexCsv(rows).trimEnd();
+  const lines = csv.split(/\r?\n/);
+  assert.equal(lines.length, 2);
+  assert.ok(lines[1].includes('"[""a"",""b""]"'));
+  assert.ok(lines[1].includes('"[""t1""]"'));
 });
