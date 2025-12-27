@@ -15,3 +15,5 @@ dist/
 .env
 .env.local
 .aider*
+
+_local_backup/
