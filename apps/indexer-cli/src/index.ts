@@ -96,12 +96,22 @@ program
     "output directory (repo-relative or absolute); default: analytics/<timestamp>"
   )
   .option(
+    "--emit-html",
+    "also emit a local file:// dashboard (writes <out>/index.html and <out>/data.js)"
+  )
+  .option(
     "--work-only",
     "limit markdown summaries to work-only scope (CSV/JSON still include full index)"
   )
-  .action(async (opts: { out?: string; workOnly?: boolean }) => {
-    await runAnalyzeCommand({ out: opts.out, workOnly: !!opts.workOnly });
-  });
+  .action(
+    async (opts: { out?: string; workOnly?: boolean; emitHtml?: boolean }) => {
+      await runAnalyzeCommand({
+        out: opts.out,
+        workOnly: !!opts.workOnly,
+        emitHtml: !!opts.emitHtml,
+      });
+    }
+  );
 
 program
   .command("run")

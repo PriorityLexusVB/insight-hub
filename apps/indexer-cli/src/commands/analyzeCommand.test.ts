@@ -180,6 +180,66 @@ code block should not count words
   );
 });
 
+test("analyze --emit-html creates index.html + data.js", async () => {
+  const tmpRoot = await fs.mkdtemp(
+    path.join(os.tmpdir(), "insight-hub-analyze-html-")
+  );
+  const threadVault = path.join(tmpRoot, "thread-vault");
+  const threads = path.join(threadVault, "threads");
+  const outDir = path.join(tmpRoot, "analytics", "_dev");
+
+  await fs.mkdir(threads, { recursive: true });
+
+  const threadId = "22222222-2222-2222-2222-222222222222";
+  const md = `---
+thread_uid: ${threadId}
+title: HTML Dash Thread
+created_at: 2025-01-01T00:00:00.000Z
+last_active_at: 2025-01-01T00:10:00.000Z
+domain: dealership_ops
+apps: ["indexer-cli"]
+tags: ["ops"]
+router:
+  primary_home:
+    file: docs/infra/INDEX.md
+    section: Overview
+  confidence: 0.92
+merge:
+  cluster_id: CL-00012
+---
+
+## Summary
+This should emit HTML.
+`;
+  await fs.writeFile(path.join(threads, `${threadId}.md`), md, "utf8");
+
+  await runAnalyzeCommand({
+    out: path.relative(tmpRoot, outDir),
+    workOnly: false,
+    emitHtml: true,
+    paths: { repoRoot: tmpRoot, threadsDir: threads },
+  });
+
+  const expected = [
+    "chat_index.json",
+    "chat_index.csv",
+    "index.html",
+    "data.js",
+  ];
+  for (const f of expected) {
+    const p = path.join(outDir, f);
+    const s = await fs.stat(p);
+    assert.ok(s.size > 0, `${f} should not be empty`);
+  }
+
+  const dataJs = await fs.readFile(path.join(outDir, "data.js"), "utf8");
+  assert.ok(dataJs.includes("window.__CHAT_INDEX__"));
+
+  const html = await fs.readFile(path.join(outDir, "index.html"), "utf8");
+  assert.ok(html.includes("Work-only"));
+  assert.ok(html.includes('<th data-k="title">Title'));
+});
+
 test("toChatIndexCsv emits correct header", () => {
   const rows: ChatIndexRow[] = [
     {
