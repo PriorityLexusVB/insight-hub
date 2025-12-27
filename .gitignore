@@ -5,6 +5,7 @@ exports/
 # generated outputs (keep local by default)
 thread-vault/
 patches/
+analytics/
 .cache/
 
 # node

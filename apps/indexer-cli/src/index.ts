@@ -10,6 +10,7 @@ import { runRouteCommand } from "./commands/routeCommand";
 import { runMergeCommand } from "./commands/mergeCommand";
 import { enrichClusters } from "./commands/enrichClustersCommand";
 import { runPatchCommand } from "./commands/patchCommand";
+import { runAnalyzeCommand } from "./commands/analyzeCommand";
 
 const program = new Command();
 
@@ -86,6 +87,23 @@ program
   });
 
 program
+  .command("analyze")
+  .description(
+    "Read-only analytics: compute CDI/CWID/maturity/load and write outputs under analytics/"
+  )
+  .option(
+    "--out <dir>",
+    "output directory (repo-relative or absolute); default: analytics/<timestamp>"
+  )
+  .option(
+    "--work-only",
+    "limit markdown summaries to work-only scope (CSV/JSON still include full index)"
+  )
+  .action(async (opts: { out?: string; workOnly?: boolean }) => {
+    await runAnalyzeCommand({ out: opts.out, workOnly: !!opts.workOnly });
+  });
+
+program
   .command("run")
   .argument("<zipPath>", "Path to ChatGPT export zip")
   .description(
@@ -156,7 +174,14 @@ async function runSummarize(params: {
   await writeThreadCards({ threads: limited, mode: "heuristic" });
 }
 
-program.parseAsync(process.argv).catch((err) => {
+// pnpm sometimes forwards a standalone `--` to the script (e.g. `pnpm start -- analyze --out ...`).
+// Commander treats this as "end of options" and will ignore flags that follow, so we strip it.
+const argv =
+  process.argv.length >= 3 && process.argv[2] === "--"
+    ? [process.argv[0], process.argv[1], ...process.argv.slice(3)]
+    : process.argv;
+
+program.parseAsync(argv).catch((err) => {
   console.error(err);
   process.exit(1);
 });
