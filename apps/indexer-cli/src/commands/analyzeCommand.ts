@@ -647,24 +647,46 @@ function renderDataDictionaryMd(): string {
 
   lines.push("## Columns");
   lines.push("");
-  lines.push("- `thread_uid`: Thread identifier (from front matter; falls back to filename)");
+  lines.push(
+    "- `thread_uid`: Thread identifier (from front matter; falls back to filename)"
+  );
   lines.push("- `title`: Thread title (from front matter)");
   lines.push("- `domain`: Domain label from routing metadata (front matter)");
-  lines.push("- `apps`: List of app names (front matter). In CSV this is a JSON string.");
-  lines.push("- `tags`: List of tags (front matter). In CSV this is a JSON string.");
-  lines.push("- `primary_home_file`: Router primary home file path (front matter)");
-  lines.push("- `primary_home_section`: Router primary home section (front matter)");
+  lines.push(
+    "- `apps`: List of app names (front matter). In CSV this is a JSON string."
+  );
+  lines.push(
+    "- `tags`: List of tags (front matter). In CSV this is a JSON string."
+  );
+  lines.push(
+    "- `primary_home_file`: Router primary home file path (front matter)"
+  );
+  lines.push(
+    "- `primary_home_section`: Router primary home section (front matter)"
+  );
   lines.push("- `router_confidence`: Router confidence (number; nullable)");
   lines.push("- `cluster_id`: Merge cluster id (front matter; may be empty)");
-  lines.push("- `word_count`: Word count of body text with fenced code blocks removed");
+  lines.push(
+    "- `word_count`: Word count of body text with fenced code blocks removed"
+  );
   lines.push("- `emdash_count`: Count of em-dash characters (—) in body text");
-  lines.push("- `constraint_count`: Count of constraint phrases matched in body text");
+  lines.push(
+    "- `constraint_count`: Count of constraint phrases matched in body text"
+  );
   lines.push("- `CDI`: Constraint Density Index");
-  lines.push("- `turns_total`: Total messages from raw conversation export if found (nullable)");
-  lines.push("- `user_turns`: User messages from raw export if found (nullable)");
-  lines.push("- `assistant_turns`: Assistant messages from raw export if found (nullable)");
+  lines.push(
+    "- `turns_total`: Total messages from raw conversation export if found (nullable)"
+  );
+  lines.push(
+    "- `user_turns`: User messages from raw export if found (nullable)"
+  );
+  lines.push(
+    "- `assistant_turns`: Assistant messages from raw export if found (nullable)"
+  );
   lines.push("- `cwid`: Cognitive Workload Index Density (nullable)");
-  lines.push("- `cwid_is_proxy`: `true` when `cwid` uses a timestamp-based proxy turns estimate");
+  lines.push(
+    "- `cwid_is_proxy`: `true` when `cwid` uses a timestamp-based proxy turns estimate"
+  );
   lines.push("- `maturity_score`: System maturity score (0–100)");
   lines.push("- `load_score`: Cognitive load score (continuous)");
   lines.push("- `is_work`: Work classification boolean");
