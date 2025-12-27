@@ -339,6 +339,70 @@ Text — with emphasis.
   assert.equal(rollups[0].aliases.length, 2);
 });
 
+test("analyze --emit-rollup home fallback has a max-size guardrail", async () => {
+  const tmpRoot = await fs.mkdtemp(
+    path.join(os.tmpdir(), "insight-hub-analyze-rollup-homeguard-")
+  );
+  const threadVault = path.join(tmpRoot, "thread-vault");
+  const threads = path.join(threadVault, "threads");
+  const outDir = path.join(tmpRoot, "analytics", "_dev");
+
+  await fs.mkdir(threads, { recursive: true });
+
+  const home = "docs/infra/INDEX.md";
+  const base = `
+domain: dealership_ops
+apps: ["indexer-cli"]
+tags: ["ops"]
+router:
+  primary_home:
+    file: ${home}
+    section: Overview
+  confidence: 0.92
+`;
+
+  const ids = [
+    "55555555-5555-5555-5555-555555555555",
+    "66666666-6666-6666-6666-666666666666",
+    "77777777-7777-7777-7777-777777777777",
+    "88888888-8888-8888-8888-888888888888",
+  ];
+
+  for (const id of ids) {
+    const md = `---
+thread_uid: ${id}
+title: Home fallback guard ${id}
+created_at: 2025-01-01T00:00:00.000Z
+last_active_at: 2025-01-01T00:10:00.000Z
+${base}---
+
+Hello.
+`;
+    await fs.writeFile(path.join(threads, `${id}.md`), md, "utf8");
+  }
+
+  await runAnalyzeCommand({
+    out: path.relative(tmpRoot, outDir),
+    workOnly: false,
+    emitRollup: true,
+    paths: { repoRoot: tmpRoot, threadsDir: threads },
+  });
+
+  const rollupJsonPath = path.join(outDir, "rollup", "rollup.json");
+  const collisionsMdPath = path.join(outDir, "rollup", "collisions.md");
+
+  const rollups = JSON.parse(
+    await fs.readFile(rollupJsonPath, "utf8")
+  ) as any[];
+
+  // HOME_FALLBACK_MERGE_MAX is 3; 4 threads to same home should NOT merge.
+  assert.equal(rollups.length, 4);
+
+  const collisions = await fs.readFile(collisionsMdPath, "utf8");
+  assert.ok(collisions.includes("Fallback prevented"));
+  assert.ok(collisions.includes(home));
+});
+
 test("toChatIndexCsv emits correct header", () => {
   const rows: ChatIndexRow[] = [
     {

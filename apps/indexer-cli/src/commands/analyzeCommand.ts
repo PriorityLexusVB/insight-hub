@@ -270,7 +270,18 @@ function renderRollupMd(params: {
 function renderCollisionsMd(params: {
   rollups: RollupRow[];
   missingClusterIdCount: number;
+  homeFallbackMergeMax: number;
   primaryHomeFallbackMergedGroups: number;
+  primaryHomeMergedGroups: Array<{
+    home: string;
+    dupe_count: number;
+    sample_titles: string[];
+  }>;
+  primaryHomeFallbackPreventedGroups: Array<{
+    home: string;
+    dupe_count: number;
+    sample_titles: string[];
+  }>;
   clusterIdMultiHomeGroups: Array<{
     key: string;
     homes: string[];
@@ -282,12 +293,41 @@ function renderCollisionsMd(params: {
   lines.push("");
   lines.push(`- Missing cluster_id (count): ${params.missingClusterIdCount}`);
   lines.push(
-    `- Fallback merged groups by primary_home_file: ${params.primaryHomeFallbackMergedGroups}`
+    `- Fallback merged groups by primary_home_file (<= ${params.homeFallbackMergeMax}): ${params.primaryHomeFallbackMergedGroups}`
+  );
+  lines.push(
+    `- Fallback prevented by primary_home_file (> ${params.homeFallbackMergeMax}): ${params.primaryHomeFallbackPreventedGroups.length}`
   );
   lines.push(
     `- cluster_id with multiple primary_home_file: ${params.clusterIdMultiHomeGroups.length}`
   );
   lines.push("");
+
+  if (params.primaryHomeMergedGroups.length) {
+    lines.push("## Fallback merges by primary_home_file");
+    lines.push("");
+    lines.push("| home file | dupes | sample titles |");
+    lines.push("|---|---:|---|");
+    for (const g of params.primaryHomeMergedGroups) {
+      const titles = g.sample_titles.map((t) => escapeMd(t)).join("; ");
+      lines.push(`| ${escapeMd(g.home)} | ${g.dupe_count} | ${titles} |`);
+    }
+    lines.push("");
+  }
+
+  if (params.primaryHomeFallbackPreventedGroups.length) {
+    lines.push(
+      "## Fallback prevented: primary_home_file groups too large (not merged)"
+    );
+    lines.push("");
+    lines.push("| home file | dupes | sample titles |");
+    lines.push("|---|---:|---|");
+    for (const g of params.primaryHomeFallbackPreventedGroups) {
+      const titles = g.sample_titles.map((t) => escapeMd(t)).join("; ");
+      lines.push(`| ${escapeMd(g.home)} | ${g.dupe_count} | ${titles} |`);
+    }
+    lines.push("");
+  }
 
   if (params.clusterIdMultiHomeGroups.length) {
     lines.push("## cluster_id spans multiple primary_home_file");
@@ -1545,21 +1585,70 @@ export async function runAnalyzeCommand(
     const rollupDir = path.join(outDir, "rollup");
     await fs.mkdir(rollupDir, { recursive: true });
 
+    const HOME_FALLBACK_MERGE_MAX = 3;
+
+    const homeCounts = new Map<string, number>();
+    for (const r of rows) {
+      const hasCluster = (r.cluster_id || "").trim().length > 0;
+      const home = (r.primary_home_file || "").trim();
+      if (!hasCluster && home) {
+        homeCounts.set(home, (homeCounts.get(home) ?? 0) + 1);
+      }
+    }
+
+    const primaryHomeFallbackPreventedSet = new Set<string>();
+    for (const [home, count] of homeCounts.entries()) {
+      if (count > HOME_FALLBACK_MERGE_MAX) primaryHomeFallbackPreventedSet.add(home);
+    }
+
+    const primaryHomeFallbackPreventedRows = new Map<string, ChatIndexRow[]>();
+    for (const r of rows) {
+      const hasCluster = (r.cluster_id || "").trim().length > 0;
+      const home = (r.primary_home_file || "").trim();
+      if (!hasCluster && home && primaryHomeFallbackPreventedSet.has(home)) {
+        const arr = primaryHomeFallbackPreventedRows.get(home);
+        if (arr) arr.push(r);
+        else primaryHomeFallbackPreventedRows.set(home, [r]);
+      }
+    }
+
     const groups = new Map<
       string,
       { keyType: RollupKeyType; key: string; rows: ChatIndexRow[] }
     >();
     for (const r of rows) {
-      const { dedupe_key_type, dedupe_key } = rollupKeyForRow(r);
-      const mapKey = `${dedupe_key_type}:${dedupe_key}`;
-      const existing = groups.get(mapKey);
-      if (existing) existing.rows.push(r);
-      else
-        groups.set(mapKey, {
-          keyType: dedupe_key_type,
-          key: dedupe_key,
-          rows: [r],
-        });
+      const clusterId = (r.cluster_id || "").trim();
+      if (clusterId) {
+        const mapKey = `cluster_id:${clusterId}`;
+        const existing = groups.get(mapKey);
+        if (existing) existing.rows.push(r);
+        else groups.set(mapKey, { keyType: "cluster_id", key: clusterId, rows: [r] });
+        continue;
+      }
+
+      const home = (r.primary_home_file || "").trim();
+      const homeCount = home ? (homeCounts.get(home) ?? 0) : 0;
+
+      // Only merge by home when it's small; otherwise treat as "missing" (no merge).
+      if (home && homeCount > 1 && homeCount <= HOME_FALLBACK_MERGE_MAX) {
+        const mapKey = `primary_home_file:${home}`;
+        const existing = groups.get(mapKey);
+        if (existing) existing.rows.push(r);
+        else
+          groups.set(mapKey, {
+            keyType: "primary_home_file",
+            key: home,
+            rows: [r],
+          });
+        continue;
+      }
+
+      const mapKey = `missing:missing:${r.thread_uid}`;
+      groups.set(mapKey, {
+        keyType: "missing",
+        key: `missing:${r.thread_uid}`,
+        rows: [r],
+      });
     }
 
     const rollups: RollupRow[] = [];
@@ -1570,6 +1659,32 @@ export async function runAnalyzeCommand(
     ).length;
     let mergedGroups = 0;
     let primaryHomeFallbackMergedGroups = 0;
+
+    const primaryHomeMergedGroups: Array<{
+      home: string;
+      dupe_count: number;
+      sample_titles: string[];
+    }> = [];
+
+    const primaryHomeFallbackPreventedGroups: Array<{
+      home: string;
+      dupe_count: number;
+      sample_titles: string[];
+    }> = Array.from(primaryHomeFallbackPreventedRows.entries())
+      .map(([home, rs]) => {
+        const sorted = rs
+          .slice()
+          .sort((a, b) => compareTupleDesc(rollupSortTuple(a), rollupSortTuple(b)));
+        return {
+          home,
+          dupe_count: rs.length,
+          sample_titles: sorted.slice(0, 3).map((r) => r.title),
+        };
+      })
+      .sort((a, b) => {
+        if (b.dupe_count !== a.dupe_count) return b.dupe_count - a.dupe_count;
+        return a.home < b.home ? -1 : a.home > b.home ? 1 : 0;
+      });
 
     const clusterIdToHomes = new Map<string, Set<string>>();
     const clusterIdToDupeCount = new Map<string, number>();
@@ -1596,6 +1711,11 @@ export async function runAnalyzeCommand(
 
       if (g.keyType === "primary_home_file" && groupRows.length > 1) {
         primaryHomeFallbackMergedGroups++;
+        primaryHomeMergedGroups.push({
+          home: g.key,
+          dupe_count: groupRows.length,
+          sample_titles: groupRows.slice(0, 3).map((r) => r.title),
+        });
       }
 
       if (g.keyType === "cluster_id") {
@@ -1677,6 +1797,11 @@ export async function runAnalyzeCommand(
     }
     clusterIdMultiHomeGroups.sort((a, b) => b.dupe_count - a.dupe_count);
 
+    primaryHomeMergedGroups.sort((a, b) => {
+      if (b.dupe_count !== a.dupe_count) return b.dupe_count - a.dupe_count;
+      return a.home < b.home ? -1 : a.home > b.home ? 1 : 0;
+    });
+
     const rollupJsonPath = path.join(rollupDir, "rollup.json");
     const rollupMdPath = path.join(rollupDir, "rollup.md");
     const dedupeReportPath = path.join(rollupDir, "dedupe_report.json");
@@ -1712,7 +1837,10 @@ export async function runAnalyzeCommand(
       renderCollisionsMd({
         rollups,
         missingClusterIdCount,
+        homeFallbackMergeMax: HOME_FALLBACK_MERGE_MAX,
         primaryHomeFallbackMergedGroups,
+        primaryHomeMergedGroups,
+        primaryHomeFallbackPreventedGroups,
         clusterIdMultiHomeGroups,
       }),
       "utf8"
