@@ -100,15 +100,25 @@ program
     "also emit a local file:// dashboard (writes <out>/index.html and <out>/data.js)"
   )
   .option(
+    "--emit-rollup",
+    "also emit rollup summaries (writes <out>/rollup/*)"
+  )
+  .option(
     "--work-only",
     "limit markdown summaries to work-only scope (CSV/JSON still include full index)"
   )
   .action(
-    async (opts: { out?: string; workOnly?: boolean; emitHtml?: boolean }) => {
+    async (opts: {
+      out?: string;
+      workOnly?: boolean;
+      emitHtml?: boolean;
+      emitRollup?: boolean;
+    }) => {
       await runAnalyzeCommand({
         out: opts.out,
         workOnly: !!opts.workOnly,
         emitHtml: !!opts.emitHtml,
+        emitRollup: !!opts.emitRollup,
       });
     }
   );

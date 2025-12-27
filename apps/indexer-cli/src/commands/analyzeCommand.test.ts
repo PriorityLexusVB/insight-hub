@@ -252,6 +252,86 @@ This should emit HTML.
   assert.doesNotThrow(() => new vm.Script(scripts[1].body));
 });
 
+test("analyze --emit-rollup dedupes by cluster_id and picks a deterministic winner", async () => {
+  const tmpRoot = await fs.mkdtemp(
+    path.join(os.tmpdir(), "insight-hub-analyze-rollup-")
+  );
+  const threadVault = path.join(tmpRoot, "thread-vault");
+  const threads = path.join(threadVault, "threads");
+  const outDir = path.join(tmpRoot, "analytics", "_dev");
+
+  await fs.mkdir(threads, { recursive: true });
+
+  const clusterId = "CL-ROLLUP-1";
+  const base = `
+domain: dealership_ops
+apps: ["indexer-cli"]
+tags: ["ops"]
+router:
+  primary_home:
+    file: docs/infra/INDEX.md
+    section: Overview
+  confidence: 0.92
+merge:
+  cluster_id: ${clusterId}
+`;
+
+  const id1 = "33333333-3333-3333-3333-333333333333";
+  const id2 = "44444444-4444-4444-4444-444444444444";
+
+  // Same approx turns, but id2 has higher CDI (more emdash/constraints) => higher CWID.
+  const md1 = `---
+thread_uid: ${id1}
+title: Rollup Winner? (low CDI)
+created_at: 2025-01-01T00:00:00.000Z
+last_active_at: 2025-01-01T00:10:00.000Z
+${base}---
+
+Hello world.
+`;
+
+  const md2 = `---
+thread_uid: ${id2}
+title: Rollup Winner (high CDI)
+created_at: 2025-01-01T00:00:00.000Z
+last_active_at: 2025-01-01T00:10:00.000Z
+${base}---
+
+Text — with emphasis.
+[constraint: must]
+[constraint: should]
+`;
+
+  await fs.writeFile(path.join(threads, `${id1}.md`), md1, "utf8");
+  await fs.writeFile(path.join(threads, `${id2}.md`), md2, "utf8");
+
+  await runAnalyzeCommand({
+    out: path.relative(tmpRoot, outDir),
+    workOnly: false,
+    emitRollup: true,
+    paths: { repoRoot: tmpRoot, threadsDir: threads },
+  });
+
+  const rollupJsonPath = path.join(outDir, "rollup", "rollup.json");
+  const rollupMdPath = path.join(outDir, "rollup", "rollup.md");
+  const dedupeReportPath = path.join(outDir, "rollup", "dedupe_report.json");
+  const collisionsMdPath = path.join(outDir, "rollup", "collisions.md");
+
+  for (const p of [rollupJsonPath, rollupMdPath, dedupeReportPath, collisionsMdPath]) {
+    const s = await fs.stat(p);
+    assert.ok(s.size > 0, `${path.basename(p)} should not be empty`);
+  }
+
+  const rollups = JSON.parse(await fs.readFile(rollupJsonPath, "utf8")) as any[];
+  assert.equal(rollups.length, 1);
+  assert.equal(rollups[0].thread_uid, id2);
+  assert.equal(rollups[0].cluster_id, clusterId);
+  assert.equal(rollups[0].dupe_count, 2);
+  assert.equal(rollups[0].dedupe_key_type, "cluster_id");
+  assert.equal(rollups[0].dedupe_key, clusterId);
+  assert.equal(rollups[0].aliases.length, 2);
+});
+
 test("toChatIndexCsv emits correct header", () => {
   const rows: ChatIndexRow[] = [
     {

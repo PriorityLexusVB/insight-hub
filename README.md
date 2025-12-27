@@ -22,6 +22,7 @@ Generate analytics (read-only; writes to analytics/ only):
 pnpm -C apps/indexer-cli start -- analyze
 pnpm -C apps/indexer-cli start -- analyze --out analytics/_dev --work-only
 pnpm -C apps/indexer-cli start -- analyze --out analytics/_dev --emit-html
+pnpm -C apps/indexer-cli start -- analyze --out analytics/_dev --emit-rollup
 ```
 
 Notes:
