@@ -136,6 +136,7 @@ code block should not count words
   const expected = [
     "chat_index.csv",
     "chat_index.json",
+    "data_dictionary.md",
     "work_only.csv",
     "work_summary.md",
     "leadership_vs_builder.md",

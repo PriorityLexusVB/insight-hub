@@ -626,6 +626,74 @@ function approxTurnsFromDates(
   return clamp(approx, 2, 60);
 }
 
+function renderDataDictionaryMd(): string {
+  const lines: string[] = [];
+  lines.push("# Chat Index Data Dictionary");
+  lines.push("");
+  lines.push(
+    "This describes the columns produced by `analyze` in `chat_index.csv` / `chat_index.json`."
+  );
+  lines.push("");
+
+  lines.push("## Output files");
+  lines.push("");
+  lines.push("- `chat_index.json`: full row data (recommended for drill-down)");
+  lines.push("- `chat_index.csv`: stable CSV contract for spreadsheets");
+  lines.push("- `work_only.csv`: work-focused subset CSV");
+  lines.push("- `work_summary.md`: work counts + top lists");
+  lines.push("- `leadership_vs_builder.md`: cohort averages");
+  lines.push("- `leverage_audit.md`: top 15 SOP candidates + best systems");
+  lines.push("");
+
+  lines.push("## Columns");
+  lines.push("");
+  lines.push("- `thread_uid`: Thread identifier (from front matter; falls back to filename)");
+  lines.push("- `title`: Thread title (from front matter)");
+  lines.push("- `domain`: Domain label from routing metadata (front matter)");
+  lines.push("- `apps`: List of app names (front matter). In CSV this is a JSON string.");
+  lines.push("- `tags`: List of tags (front matter). In CSV this is a JSON string.");
+  lines.push("- `primary_home_file`: Router primary home file path (front matter)");
+  lines.push("- `primary_home_section`: Router primary home section (front matter)");
+  lines.push("- `router_confidence`: Router confidence (number; nullable)");
+  lines.push("- `cluster_id`: Merge cluster id (front matter; may be empty)");
+  lines.push("- `word_count`: Word count of body text with fenced code blocks removed");
+  lines.push("- `emdash_count`: Count of em-dash characters (—) in body text");
+  lines.push("- `constraint_count`: Count of constraint phrases matched in body text");
+  lines.push("- `CDI`: Constraint Density Index");
+  lines.push("- `turns_total`: Total messages from raw conversation export if found (nullable)");
+  lines.push("- `user_turns`: User messages from raw export if found (nullable)");
+  lines.push("- `assistant_turns`: Assistant messages from raw export if found (nullable)");
+  lines.push("- `cwid`: Cognitive Workload Index Density (nullable)");
+  lines.push("- `cwid_is_proxy`: `true` when `cwid` uses a timestamp-based proxy turns estimate");
+  lines.push("- `maturity_score`: System maturity score (0–100)");
+  lines.push("- `load_score`: Cognitive load score (continuous)");
+  lines.push("- `is_work`: Work classification boolean");
+  lines.push("- `work_type`: Work category label (ops/technical/comms/etc.)");
+  lines.push("");
+
+  lines.push("## Key formulas");
+  lines.push("");
+  lines.push(
+    "- CDI: `((emdash_count + constraint_count) / max(1, word_count)) * 1000`"
+  );
+  lines.push(
+    "- CWID: `turns * CDI`, where `turns = turns_total` if raw exports match; otherwise proxy turns from timestamps"
+  );
+  lines.push(
+    "- Load: `word_count * (1 + CDI/1000) * (1 + turns/50)` where `turns = turns_total ?? approx_turns ?? 0`"
+  );
+  lines.push("");
+
+  lines.push("## Proxy turns");
+  lines.push("");
+  lines.push(
+    "When raw conversation exports are not available/matchable, turns are approximated from `created_at` and `last_active_at` as `approx_turns = clamp(round(minutes/2), 2, 60)`. In that case `turns_total/user_turns/assistant_turns` remain blank/null and `cwid_is_proxy=true`."
+  );
+  lines.push("");
+
+  return lines.join("\n") + "\n";
+}
+
 export async function runAnalyzeCommand(
   opts: AnalyzeOptions = {}
 ): Promise<void> {
@@ -758,9 +826,11 @@ export async function runAnalyzeCommand(
 
   const chatIndexJson = path.join(outDir, "chat_index.json");
   const chatIndexCsv = path.join(outDir, "chat_index.csv");
+  const dataDictionaryMd = path.join(outDir, "data_dictionary.md");
 
   await fs.writeFile(chatIndexJson, JSON.stringify(rows, null, 2), "utf8");
   await fs.writeFile(chatIndexCsv, toChatIndexCsv(rows), "utf8");
+  await fs.writeFile(dataDictionaryMd, renderDataDictionaryMd(), "utf8");
 
   const workOnlyRows = rows.filter(
     (r) =>
