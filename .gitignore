@@ -17,3 +17,5 @@ dist/
 .aider*
 
 _local_backup/
+
+patches/
