@@ -119,7 +119,7 @@ for (const s of suggestions) {
   fs.writeFileSync(tmpB, after, "utf8");
 
   try {
-    const d = execFileSync("diff", ["-u", "--label", `a/${fileRel}`, "--label", `b/${fileRel}`, tmpA, tmpB], { encoding: "utf8" });
+    const d = execFileSync("diff", ["-u", tmpA, tmpB], { encoding: "utf8" });
     // rewrite headers to repo-relative paths (git-apply friendly)
     const normalized = d
       .replace(/^--- .*\n/, `--- a/${fileRel}\n`)
