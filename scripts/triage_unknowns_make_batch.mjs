@@ -1,4 +1,19 @@
 #!/usr/bin/env node
+// scripts/triage_unknowns_make_batch.mjs
+// Generate an LLM triage batch for unknown/low-confidence threads.
+// Writes:
+//  - unknown_queue_<batchId>.json
+//  - triage_batch_<batchId>.md
+//
+// Usage example:
+//   node scripts/triage_unknowns_make_batch.mjs \
+//     --in analytics/_current/chat_index.json \
+//     --threads thread-vault/threads \
+//     --out analytics/_current/triage \
+//     --limit 200 \
+//     --unknownOnly \
+//     --batchId 005
+
 import fs from "fs";
 import path from "path";
 
@@ -17,6 +32,7 @@ const outDir = arg("--out", "analytics/_current/triage");
 const limit = Number(arg("--limit", "150"));
 const confMax = Number(arg("--confMax", "0.69")); // triage low-confidence or unknown
 const includeDomainUnknownOnly = flag("--unknownOnly"); // optional
+const batchId = String(arg("--batchId", "001")).padStart(3, "0");
 
 if (!fs.existsSync(inChatIndex)) {
   console.error("Missing chat_index:", inChatIndex);
@@ -48,13 +64,14 @@ function stripFrontMatter(md) {
 function stripCodeFences(md) {
   return md.replace(/```[\s\S]*?```/g, "");
 }
-function snippet(md, n = 1200) {
+function snippet(md, n = 2000) {
+  // 2000 chars gives the model more signal and tends to increase confidence.
   const s = stripCodeFences(stripFrontMatter(md)).trim().replace(/\s+/g, " ");
   return s.slice(0, n);
 }
 
-const queuePath = path.join(outDir, "unknown_queue.json");
-const batchPath = path.join(outDir, "triage_batch_001.md");
+const queuePath = path.join(outDir, `unknown_queue_${batchId}.json`);
+const batchPath = path.join(outDir, `triage_batch_${batchId}.md`);
 
 fs.writeFileSync(queuePath, JSON.stringify(pick, null, 2), "utf8");
 
@@ -78,12 +95,12 @@ const allowedWork = [
 ];
 
 const lines = [];
-lines.push("# Triage Batch 001 — Unknown/Low-Confidence Threads");
+lines.push(`# Triage Batch ${batchId} — Unknown/Low-Confidence Threads`);
 lines.push("");
 lines.push("## Output contract (STRICT)");
 lines.push("");
 lines.push(
-  "Return **JSONL**. One JSON object per line, no markdown, no commentary."
+  "Return JSONL only. One JSON object per line. No markdown. No commentary."
 );
 lines.push("Required keys:");
 lines.push("- thread_uid (string)");
@@ -114,7 +131,7 @@ for (const r of pick) {
     md = "";
   }
 
-  lines.push(`---`);
+  lines.push("---");
   lines.push(`thread_uid: ${uid}`);
   lines.push(`title: ${r.title || ""}`);
   lines.push(`current_domain: ${r.domain || "unknown"}`);
