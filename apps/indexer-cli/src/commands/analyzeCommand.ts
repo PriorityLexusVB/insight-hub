@@ -272,41 +272,94 @@ function fallbackClassifyUnknown(params: {
   bodyText: string;
 }): { domain: string; work_type: WorkType } | null {
   const t = `${params.title}\n${params.bodyText}`.toLowerCase();
-
   const has = (re: RegExp) => re.test(t);
 
-  // 1) obvious spreadsheet/doc workflows
+  // =========================
+  // 0) RESEARCH / CLAIMS / EVIDENCE / STATS (HIGH PRECEDENCE)
+  // This makes research "neat and complete" and prevents claim-analysis from landing in creative/infra.
+  // =========================
   if (
-    has(/\bexcel\b|\bspreadsheet\b|\bformula\b|\bsum\b|\bcolumns?\b|\btable\b|\bdocx\b|\bword doc\b|\bword document\b|\bmerge columns\b|\bcolor code\b/)
-  ) {
-    return { domain: "infra_agents", work_type: "technical" };
-  }
-
-  // 2) obvious media creation/editing
-  if (
-    has(/\bimage\b|\bphoto\b|\bproduct photo\b|\bvideo\b|\bdoodle\b|\bsticker\b|\bart\b|\brender\b|\bcarousel\b|\bprompt\b|\bedits?\b/)
-  ) {
-    return { domain: "infra_agents", work_type: "creative" };
-  }
-
-  // 3) politics / current-events analysis
-  if (
-    has(/\btrump\b|\brfk\b|\bvaccine\b|\belection\b|\bcabinet\b|\bpolitic/)
+    has(
+      /\b(trump|biden|rfk|kennedy|cabinet|campaign|election|polls?|senate|congress|scotus|supreme court|white house|administration|policy|bill|law|ruling|court)\b/
+    ) ||
+    has(/\b(claims?|fact[- ]?check|debunk|misinformation|hoax|verify)\b/) ||
+    has(
+      /\b(evidence|likelihood|probability|stats?|statistics|dataset|data|report|study|research|overview)\b/
+    ) ||
+    has(
+      /\b(exchange rates?|forex|currency|quant\b|trading|projections|forecast)\b/
+    ) ||
+    has(/\b(plane crash|spacex|rapid launches)\b/) ||
+    has(/\b(ivermectin|fenbendazole|thc|thca|pbm\b|negotiations)\b/) ||
+    has(/\b(vaccine|vaccination|covid|cdc|who)\b/) ||
+    has(/\b(noah'?s ark|milgram experiment)\b/)
   ) {
     return { domain: "research", work_type: "unknown" };
   }
 
-  // 4) family / home / personal
+  // =========================
+  // 1) INFRA / TECH SUPPORT (debugging, tooling, downloads, APIs)
+  // =========================
   if (
-    has(/\bkid\b|\bkids\b|\bbirthday\b|\bfamily\b|\bhome\b|\bceiling speaker\b|\bwindow cleaning\b|\bnoise\b/)
+    has(
+      /\b(error|bug|debug|stack trace|exception|crash|no content|download issue|inaccessible)\b/
+    ) ||
+    has(
+      /\b(script|javascript|typescript|node\b|pnpm\b|api\b|endpoint|schema|sql|firebase|supabase|twilio|google drive|gemini)\b/
+    ) ||
+    has(/\b(click\b.*debug|button\b.*click)\b/) ||
+    has(/\b(terminology|definition|clarification)\b/)
+  ) {
+    return { domain: "infra_agents", work_type: "technical" };
+  }
+
+  // =========================
+  // 2) DOC / SPREADSHEET / OFFICE WORKFLOWS
+  // =========================
+  if (
+    has(
+      /\b(excel|spreadsheet|formula|sum\b|columns?\b|table\b|merge columns\b|monthly gross income|calculate|conversion|pdf)\b/
+    ) ||
+    has(
+      /\b(word doc|docx|document|agreement|payment agreement|articles of organization)\b/
+    )
+  ) {
+    // "Articles of Organization" is document drafting; keep it comms.
+    if (has(/\barticles of organization\b/)) {
+      return { domain: "infra_agents", work_type: "comms" };
+    }
+    return { domain: "infra_agents", work_type: "technical" };
+  }
+
+  // =========================
+  // 3) CREATIVE / DESIGN / MEDIA
+  // =========================
+  if (
+    has(
+      /\b(logo|design|renders?|rendering|sticker|art|poster|golf logo|fortnite|character renders)\b/
+    ) ||
+    has(
+      /\b(image|photo|touch up|spray paint|product photo|video creation|instagram reel)\b/
+    )
+  ) {
+    return { domain: "infra_agents", work_type: "creative" };
+  }
+
+  // =========================
+  // 4) PERSONAL / HOME / DIY / RANDOM LIFE
+  // =========================
+  if (
+    has(
+      /\b(pizza|dates list|saying|corny|birthday|home|bathroom|storage|hole saw|plaster|window cleaning|noise|age restrictions)\b/
+    )
   ) {
     return { domain: "personal", work_type: "personal" };
   }
 
-  // 5) dealership / Lexus
-  if (
-    has(/\blexus\b|\bis\s?500\b|\bdelivery\b|\bdealership\b/)
-  ) {
+  // =========================
+  // 5) DEALERSHIP / LEXUS (keep at end so research/infra can win when appropriate)
+  // =========================
+  if (has(/\b(lexus|is\s?500|delivery|dealership|parking rules)\b/)) {
     return { domain: "dealership_ops", work_type: "ops" };
   }
 
@@ -1625,7 +1678,6 @@ export async function runAnalyzeCommand(
           work_type !== "entertainment";
       }
     }
-
 
     rows.push({
       thread_uid: threadUid,
