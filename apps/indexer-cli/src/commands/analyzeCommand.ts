@@ -1507,6 +1507,28 @@ export async function runAnalyzeCommand(
 
     const bodyNoCode = stripCodeFences(body);
 
+    // Confidence gate: if routing is unsure, don't let it pollute domain/home/work_type
+    const ROUTER_MIN_CONF = 0.7;
+    const lowConf =
+      routerConfidence !== null && routerConfidence < ROUTER_MIN_CONF;
+
+    const domainEffective = lowConf ? "unknown" : domain || "unknown";
+    const primaryHomeFileEffective = lowConf ? "" : primaryHomeFile;
+
+    // Use a sanitized meta for classifyWork so low-confidence routing doesn't force ops
+    const metaForClassify: any = { ...meta };
+    if (lowConf) {
+      metaForClassify.domain = "";
+      if (
+        metaForClassify.router &&
+        typeof metaForClassify.router === "object"
+      ) {
+        const r = { ...metaForClassify.router };
+        delete r.primary_home;
+        metaForClassify.router = r;
+      }
+    }
+
     const emdashCount = (bodyNoCode.match(/—/g) || []).length;
     const constraintCount = (bodyNoCode.match(CONSTRAINT_RE) || []).length;
     const wordCount = countWords(bodyNoCode);
@@ -1537,7 +1559,7 @@ export async function runAnalyzeCommand(
     const loadScore = computeLoadScore({ wordCount, CDI, turns: turnsForLoad });
 
     const { is_work, work_type } = classifyWork({
-      meta,
+      meta: metaForClassify,
       title,
       bodyText: bodyNoCode,
     });
@@ -1547,10 +1569,10 @@ export async function runAnalyzeCommand(
       title,
       created_at: createdAt,
       last_active_at: lastActiveAt,
-      domain,
+      domain: domainEffective,
       apps,
       tags,
-      primary_home_file: primaryHomeFile,
+      primary_home_file: primaryHomeFileEffective,
       primary_home_section: primaryHomeSection,
       router_confidence: routerConfidence,
       cluster_id: clusterId,
@@ -1598,7 +1620,8 @@ export async function runAnalyzeCommand(
 
     const primaryHomeFallbackPreventedSet = new Set<string>();
     for (const [home, count] of homeCounts.entries()) {
-      if (count > HOME_FALLBACK_MERGE_MAX) primaryHomeFallbackPreventedSet.add(home);
+      if (count > HOME_FALLBACK_MERGE_MAX)
+        primaryHomeFallbackPreventedSet.add(home);
     }
 
     const primaryHomeFallbackPreventedRows = new Map<string, ChatIndexRow[]>();
@@ -1622,12 +1645,17 @@ export async function runAnalyzeCommand(
         const mapKey = `cluster_id:${clusterId}`;
         const existing = groups.get(mapKey);
         if (existing) existing.rows.push(r);
-        else groups.set(mapKey, { keyType: "cluster_id", key: clusterId, rows: [r] });
+        else
+          groups.set(mapKey, {
+            keyType: "cluster_id",
+            key: clusterId,
+            rows: [r],
+          });
         continue;
       }
 
       const home = (r.primary_home_file || "").trim();
-      const homeCount = home ? (homeCounts.get(home) ?? 0) : 0;
+      const homeCount = home ? homeCounts.get(home) ?? 0 : 0;
 
       // Only merge by home when it's small; otherwise treat as "missing" (no merge).
       if (home && homeCount > 1 && homeCount <= HOME_FALLBACK_MERGE_MAX) {
@@ -1674,7 +1702,9 @@ export async function runAnalyzeCommand(
       .map(([home, rs]) => {
         const sorted = rs
           .slice()
-          .sort((a, b) => compareTupleDesc(rollupSortTuple(a), rollupSortTuple(b)));
+          .sort((a, b) =>
+            compareTupleDesc(rollupSortTuple(a), rollupSortTuple(b))
+          );
         return {
           home,
           dupe_count: rs.length,
