@@ -1604,28 +1604,11 @@ export async function runAnalyzeCommand(
     const maturityScore = computeMaturityScore(bodyNoCode);
     const loadScore = computeLoadScore({ wordCount, CDI, turns: turnsForLoad });
 
-    const { is_work: isWorkBase, work_type: workTypeBase } = classifyWork({
+    const { is_work, work_type } = classifyWork({
       meta: metaForClassify,
       title,
       bodyText: bodyNoCode,
     });
-
-    let is_work = isWorkBase;
-    let work_type = workTypeBase;
-
-    // Deterministic fallback: if still unknown, classify from title/body keywords.
-    if (domainEffective === "unknown") {
-      const fb = fallbackClassifyUnknown({ title, bodyText: bodyNoCode });
-      if (fb) {
-        domainEffective = fb.domain;
-        work_type = fb.work_type;
-        is_work =
-          domainEffective !== "personal" &&
-          work_type !== "personal" &&
-          work_type !== "entertainment";
-      }
-    }
-
 
     rows.push({
       thread_uid: threadUid,
