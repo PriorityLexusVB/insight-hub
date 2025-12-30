@@ -1,0 +1,31 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "InsightHub: Analyze (_current)",
+      "type": "shell",
+      "command": "node apps/indexer-cli/dist/index.js analyze --out analytics/_current --emit-rollup --emit-html",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    },
+    {
+      "label": "InsightHub: Build Message Index 2025 (_current)",
+      "type": "shell",
+      "command": "mkdir -p .cache/exports && unzip -p \"/mnt/h/Rob/Downloads/c64dbef87adda95e82a5c4d0ccb88ea9921cfbfff2a313cfb389ee2b87cb33d7-2025-12-26-02-37-10-b8a33e2fd2e14602a9fb56ed17cad4dd.zip\" conversations.json > .cache/exports/conversations.json && NODE_OPTIONS=--max-old-space-size=8192 node scripts/build_message_index.mjs --conversations .cache/exports/conversations.json --out analytics/_current/message_index --mode active --year 2025",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    },
+    {
+      "label": "InsightHub: Rebuild ALL (_current)",
+      "dependsOn": [
+        "InsightHub: Analyze (_current)",
+        "InsightHub: Build Message Index 2025 (_current)"
+      ],
+      "dependsOrder": "sequence",
+      "type": "shell",
+      "command": "echo done",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    }
+  ]
+}
