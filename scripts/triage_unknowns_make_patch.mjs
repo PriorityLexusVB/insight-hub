@@ -2,6 +2,13 @@
 import fs from "fs";
 import path from "path";
 import { execFileSync } from "child_process";
+import { createRequire } from "module";
+
+// IMPORTANT: resolve js-yaml from apps/indexer-cli/node_modules (not repo root)
+const requireFromIndexer = createRequire(
+  new URL("../apps/indexer-cli/dist/index.js", import.meta.url)
+);
+const yaml = requireFromIndexer("js-yaml");
 
 function arg(name, def = null) {
   const i = process.argv.indexOf(name);
@@ -9,17 +16,15 @@ function arg(name, def = null) {
   return process.argv[i + 1] ?? def;
 }
 
-const suggestionsPath = arg(
-  "--suggestions",
-  "analytics/_current/triage/triage_suggestions.jsonl"
-);
+const suggestionsPath = arg("--suggestions");
 const threadsDir = arg("--threads", "thread-vault/threads");
-const outPatch = arg(
-  "--outPatch",
-  "thread-vault/patches/route_suggestions.patch"
-);
+const outPatch = arg("--outPatch", "thread-vault/patches/route_suggestions.patch");
 const minConf = Number(arg("--minConfidence", "0.75"));
 
+if (!suggestionsPath) {
+  console.error("Missing --suggestions <file.jsonl>");
+  process.exit(1);
+}
 if (!fs.existsSync(suggestionsPath)) {
   console.error("Missing suggestions:", suggestionsPath);
   process.exit(1);
@@ -31,110 +36,93 @@ if (!fs.existsSync(threadsDir)) {
 
 fs.mkdirSync(path.dirname(outPatch), { recursive: true });
 
-function parseFrontMatter(md) {
-  const m = md.match(/^---\s*\r?\n([\s\S]*?)\r?\n---\s*\r?\n?/);
-  if (!m) return { fm: {}, body: md, rawFm: null };
-  const raw = m[1];
-  const body = md.slice(m[0].length);
-  const fm = {};
-  for (const line of raw.split(/\r?\n/)) {
-    const idx = line.indexOf(":");
-    if (idx === -1) continue;
-    const k = line.slice(0, idx).trim();
-    const v = line.slice(idx + 1).trim();
-    fm[k] = v;
-  }
-  return { fm, body, rawFm: raw };
-}
-
-function rebuildFrontMatter(md, updates) {
-  const m = md.match(/^---\s*\r?\n([\s\S]*?)\r?\n---\s*\r?\n?/);
-  const body = m ? md.slice(m[0].length) : md;
-  const lines = [];
-  lines.push("---");
-  // keep minimal stable ordering
-  const keys = Object.keys(updates);
-  for (const k of keys) {
-    const v = updates[k];
-    if (v === undefined) continue;
-    if (Array.isArray(v)) {
-      lines.push(
-        `${k}: [${v.map((x) => JSON.stringify(String(x))).join(", ")}]`
-      );
-    } else {
-      lines.push(
-        `${k}: ${typeof v === "string" ? JSON.stringify(v) : String(v)}`
-      );
-    }
-  }
-  lines.push("---");
-  lines.push("");
-  return lines.join("\n") + body.replace(/^\s*\r?\n/, "");
-}
-
 function readJsonl(p) {
-  const raw = fs.readFileSync(p, "utf8");
-  return raw
+  return fs
+    .readFileSync(p, "utf8")
     .split(/\r?\n/)
     .filter(Boolean)
-    .map((line) => JSON.parse(line));
+    .map((l) => JSON.parse(l));
 }
 
-function applySuggestionToMd(md, s) {
-  // Only touch a few fields (safe + reversible)
-  const updates = {
-    thread_uid: s.thread_uid,
-    title: undefined, // leave title alone
-    domain: s.domain,
-    apps: s.apps || [],
-    tags: s.tags || [],
-    // router fields live in nested yaml in your pipeline; we store minimal simple fields here
-    primary_home_file: s.primary_home_file || "",
-    router_confidence: Number(s.confidence ?? 0).toFixed(2),
-    router_reason: s.reason || "",
+function splitFrontMatter(md) {
+  const m = md.match(/^---\s*\r?\n([\s\S]*?)\r?\n---\s*\r?\n?/);
+  if (!m) return { meta: {}, body: md };
+  const raw = m[1];
+  let meta = {};
+  try {
+    const loaded = yaml.load(raw);
+    if (loaded && typeof loaded === "object") meta = loaded;
+  } catch {}
+  const body = md.slice(m[0].length);
+  return { meta, body };
+}
+
+function dumpFrontMatter(meta) {
+  const y = yaml.dump(meta, { noRefs: true, lineWidth: 120 }).trimEnd();
+  return `---\n${y}\n---\n\n`;
+}
+
+function applySuggestion(md, s) {
+  const { meta, body } = splitFrontMatter(md);
+
+  // Preserve everything; only update these:
+  meta.domain = s.domain;
+  if (Array.isArray(s.apps)) meta.apps = s.apps;
+  if (Array.isArray(s.tags)) meta.tags = s.tags;
+
+  // Auditable triage block (does not clobber router/merge/title/timestamps)
+  meta.triage = {
+    source: "llm_triage",
+    confidence: typeof s.confidence === "number" ? s.confidence : null,
+    reason: typeof s.reason === "string" ? s.reason : "",
+    primary_home_file:
+      typeof s.primary_home_file === "string" ? s.primary_home_file : "",
+    at: new Date().toISOString(),
   };
-  return rebuildFrontMatter(md, updates);
+
+  return dumpFrontMatter(meta) + body.replace(/^\s*\r?\n/, "");
 }
 
 const suggestions = readJsonl(suggestionsPath)
-  .filter((s) => typeof s.confidence === "number" && s.confidence >= minConf)
-  .filter((s) => s && s.thread_uid);
+  .filter((s) => s && s.thread_uid)
+  .filter((s) => typeof s.confidence === "number" && s.confidence >= minConf);
 
 let patch = "";
+let changed = 0;
 
 for (const s of suggestions) {
-  const fileRel = path.join("thread-vault", "threads", `${s.thread_uid}.md`);
+  const uid = String(s.thread_uid);
+  const fileRel = path.join("thread-vault", "threads", `${uid}.md`);
   const fileAbs = path.join(process.cwd(), fileRel);
   if (!fs.existsSync(fileAbs)) continue;
 
   const before = fs.readFileSync(fileAbs, "utf8");
-  const after = applySuggestionToMd(before, s);
-
+  const after = applySuggestion(before, s);
   if (before === after) continue;
 
-  // create temp files and diff -u to make a patch
-  const tmpA = path.join("/tmp", `before_${s.thread_uid}.md`);
-  const tmpB = path.join("/tmp", `after_${s.thread_uid}.md`);
+  changed++;
+
+  const tmpA = path.join("/tmp", `before_${uid}.md`);
+  const tmpB = path.join("/tmp", `after_${uid}.md`);
   fs.writeFileSync(tmpA, before, "utf8");
   fs.writeFileSync(tmpB, after, "utf8");
 
+  let d = "";
   try {
-    const d = execFileSync("diff", ["-u", "--label", `a/${fileRel}`, "--label", `b/${fileRel}`, tmpA, tmpB], { encoding: "utf8" });
-    // rewrite headers to repo-relative paths (git-apply friendly)
-    const normalized = d
-      .replace(/^--- .*\n/, `--- a/${fileRel}\n`)
-      .replace(/^\+\+\+ .*\n/, `+++ b/${fileRel}\n`);
-    patch += normalized + "\n";
+    d = execFileSync(
+      "diff",
+      ["-u", "--label", `a/${fileRel}`, "--label", `b/${fileRel}`, tmpA, tmpB],
+      { encoding: "utf8" }
+    );
   } catch (e) {
-    // diff exits 1 when differences exist; output is in stdout
-    const out = e.stdout?.toString?.() || "";
-    const normalized = out
-      .replace(/^--- .*\n/, `--- a/${fileRel}\n`)
-      .replace(/^\+\+\+ .*\n/, `+++ b/${fileRel}\n`);
-    patch += normalized + "\n";
+    // diff exits 1 when differences exist; stdout contains the patch
+    d = (e && e.stdout) ? e.stdout.toString() : "";
   }
+  patch += d + "\n";
 }
 
 fs.writeFileSync(outPatch, patch, "utf8");
 console.log("Wrote patch:", outPatch);
 console.log("suggestions_used:", suggestions.length);
+console.log("files_changed:", changed);
+console.log("patch_bytes:", Buffer.byteLength(patch, "utf8"));

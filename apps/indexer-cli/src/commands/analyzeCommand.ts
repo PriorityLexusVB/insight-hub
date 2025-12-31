@@ -1608,11 +1608,28 @@ export async function runAnalyzeCommand(
 
     // Confidence gate: if routing is unsure, don't let it pollute domain/home/work_type
     const ROUTER_MIN_CONF = 0.7;
+
+    // Triage override: if we have an LLM triage decision with confidence >= threshold,
+    // treat it as trusted even when router confidence is low.
+    const triage = meta && typeof meta === "object" ? (meta as any).triage : null;
+    const triageConfidenceRaw = triage?.confidence;
+    const triageConfidence =
+      typeof triageConfidenceRaw === "number" && Number.isFinite(triageConfidenceRaw)
+        ? triageConfidenceRaw
+        : null;
+    const triageHomeFile =
+      typeof triage?.primary_home_file === "string" ? triage.primary_home_file.trim() : "";
+    const TRIAGE_MIN_CONF = 0.65;
+    const triageOverride = triageConfidence !== null && triageConfidence >= TRIAGE_MIN_CONF;
+
     const lowConf =
-      routerConfidence !== null && routerConfidence < ROUTER_MIN_CONF;
+      !triageOverride &&
+      routerConfidence !== null &&
+      routerConfidence < ROUTER_MIN_CONF;
 
     let domainEffective = lowConf ? "unknown" : domain || "unknown";
-    const primaryHomeFileEffective = lowConf ? "" : primaryHomeFile;
+    const primaryHomeFileEffective =
+      lowConf ? "" : (triageOverride && triageHomeFile ? triageHomeFile : primaryHomeFile);
 
     // Use a sanitized meta for classifyWork so low-confidence routing doesn't force ops
     const metaForClassify: any = { ...meta };
