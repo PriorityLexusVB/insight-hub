@@ -4,7 +4,7 @@ import path from "path";
 import { execFileSync } from "child_process";
 import { createRequire } from "module";
 
-// IMPORTANT: resolve js-yaml from apps/indexer-cli/node_modules (not repo root)
+// Resolve js-yaml from apps/indexer-cli/node_modules
 const requireFromIndexer = createRequire(
   new URL("../apps/indexer-cli/dist/index.js", import.meta.url)
 );
@@ -62,21 +62,44 @@ function dumpFrontMatter(meta) {
   return `---\n${y}\n---\n\n`;
 }
 
+function sameArray(a, b) {
+  return Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((v, i) => v === b[i]);
+}
+
+// Idempotent: ignore reason/at-only changes.
+// We only re-write when domain/apps/tags/conf/home materially change.
 function applySuggestion(md, s) {
   const { meta, body } = splitFrontMatter(md);
 
-  // Preserve everything; only update these:
-  meta.domain = s.domain;
-  if (Array.isArray(s.apps)) meta.apps = s.apps;
-  if (Array.isArray(s.tags)) meta.tags = s.tags;
+  const desiredDomain = s.domain;
+  const desiredApps = Array.isArray(s.apps) ? s.apps : (Array.isArray(meta.apps) ? meta.apps : []);
+  const desiredTags = Array.isArray(s.tags) ? s.tags : (Array.isArray(meta.tags) ? meta.tags : []);
+  const desiredConf = typeof s.confidence === "number" ? s.confidence : null;
+  const desiredHome = typeof s.primary_home_file === "string" ? s.primary_home_file : "";
+  const desiredReason = typeof s.reason === "string" ? s.reason : "";
 
-  // Auditable triage block (does not clobber router/merge/title/timestamps)
+  const existingTriage = meta.triage && typeof meta.triage === "object" ? meta.triage : null;
+
+  const alreadySame =
+    meta.domain === desiredDomain &&
+    sameArray(Array.isArray(meta.apps) ? meta.apps : [], desiredApps) &&
+    sameArray(Array.isArray(meta.tags) ? meta.tags : [], desiredTags) &&
+    existingTriage &&
+    existingTriage.source === "llm_triage" &&
+    (existingTriage.confidence ?? null) == desiredConf &&
+    String(existingTriage.primary_home_file ?? "") === desiredHome;
+
+  if (alreadySame) return md;
+
+  meta.domain = desiredDomain;
+  meta.apps = desiredApps;
+  meta.tags = desiredTags;
+
   meta.triage = {
     source: "llm_triage",
-    confidence: typeof s.confidence === "number" ? s.confidence : null,
-    reason: typeof s.reason === "string" ? s.reason : "",
-    primary_home_file:
-      typeof s.primary_home_file === "string" ? s.primary_home_file : "",
+    confidence: desiredConf,
+    reason: desiredReason,
+    primary_home_file: desiredHome,
     at: new Date().toISOString(),
   };
 
@@ -116,7 +139,7 @@ for (const s of suggestions) {
     );
   } catch (e) {
     // diff exits 1 when differences exist; stdout contains the patch
-    d = (e && e.stdout) ? e.stdout.toString() : "";
+    d = e && e.stdout ? e.stdout.toString() : "";
   }
   patch += d + "\n";
 }
