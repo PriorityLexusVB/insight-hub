@@ -4,14 +4,14 @@
     {
       "id": "batchId",
       "type": "promptString",
-      "description": "Triage batch id (e.g., 007)",
-      "default": "007"
+      "description": "Triage batch id (e.g., 009)",
+      "default": "009"
     },
     {
       "id": "minConf",
       "type": "pickString",
       "description": "Min confidence threshold",
-      "options": ["0.75", "0.70", "0.65"],
+      "options": ["0.75", "0.70", "0.65", "0.60"],
       "default": "0.70"
     }
   ],
@@ -40,14 +40,14 @@
     {
       "label": "InsightHub: Build Patch (from suggestions)",
       "type": "shell",
-      "command": "node scripts/triage_unknowns_make_patch.mjs --suggestions analytics/_current/triage/triage_suggestions_${input:batchId}.jsonl --threads thread-vault/threads --outPatch thread-vault/patches/route_suggestions_${input:batchId}_${input:minConf}.patch --minConfidence ${input:minConf}",
+      "command": "node scripts/triage_unknowns_make_patch.mjs --suggestions analytics/_current/triage/triage_suggestions_${input:batchId}.jsonl --threads thread-vault/threads --outPatch thread-vault/patches/route_suggestions_${input:batchId}_${input:minConf}.safe.patch --minConfidence ${input:minConf}",
       "options": { "cwd": "${workspaceFolder}" },
       "problemMatcher": []
     },
     {
       "label": "InsightHub: Apply Patch + Rebuild (_current)",
       "type": "shell",
-      "command": "git apply --check thread-vault/patches/route_suggestions_${input:batchId}_${input:minConf}.patch && git apply thread-vault/patches/route_suggestions_${input:batchId}_${input:minConf}.patch && node apps/indexer-cli/dist/index.js analyze --out analytics/_current --emit-rollup --emit-html",
+      "command": "git apply --check thread-vault/patches/route_suggestions_${input:batchId}_${input:minConf}.safe.patch && git apply thread-vault/patches/route_suggestions_${input:batchId}_${input:minConf}.safe.patch && node apps/indexer-cli/dist/index.js analyze --out analytics/_current --emit-rollup --emit-html",
       "options": { "cwd": "${workspaceFolder}" },
       "problemMatcher": []
     },
@@ -62,6 +62,18 @@
       "label": "InsightHub: Zip _current report bundle (Desktop)",
       "type": "shell",
       "command": "zip -r /mnt/c/Users/ROB.BRASCO/Desktop/insight_current_report.zip analytics/_current && ls -lh /mnt/c/Users/ROB.BRASCO/Desktop/insight_current_report.zip",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    },
+    {
+      "label": "InsightHub: Rebuild ALL (_current)",
+      "dependsOn": [
+        "InsightHub: Analyze (_current)",
+        "InsightHub: Zip _current report bundle (Desktop)"
+      ],
+      "dependsOrder": "sequence",
+      "type": "shell",
+      "command": "echo done",
       "options": { "cwd": "${workspaceFolder}" },
       "problemMatcher": []
     }
