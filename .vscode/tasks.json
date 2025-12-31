@@ -1,5 +1,20 @@
 {
   "version": "2.0.0",
+  "inputs": [
+    {
+      "id": "batchId",
+      "type": "promptString",
+      "description": "Triage batch id (e.g., 007)",
+      "default": "007"
+    },
+    {
+      "id": "minConf",
+      "type": "pickString",
+      "description": "Min confidence threshold",
+      "options": ["0.75", "0.70", "0.65"],
+      "default": "0.70"
+    }
+  ],
   "tasks": [
     {
       "label": "InsightHub: Analyze (_current)",
@@ -9,21 +24,44 @@
       "problemMatcher": []
     },
     {
-      "label": "InsightHub: Build Message Index 2025 (_current)",
+      "label": "InsightHub: Triage Batch (unknownOnly)",
       "type": "shell",
-      "command": "mkdir -p .cache/exports && unzip -p \"/mnt/h/Rob/Downloads/c64dbef87adda95e82a5c4d0ccb88ea9921cfbfff2a313cfb389ee2b87cb33d7-2025-12-26-02-37-10-b8a33e2fd2e14602a9fb56ed17cad4dd.zip\" conversations.json > .cache/exports/conversations.json && NODE_OPTIONS=--max-old-space-size=8192 node scripts/build_message_index.mjs --conversations .cache/exports/conversations.json --out analytics/_current/message_index --mode active --year 2025",
+      "command": "node scripts/triage_unknowns_make_batch.mjs --in analytics/_current/chat_index.json --threads thread-vault/threads --out analytics/_current/triage --limit 200 --unknownOnly --batchId ${input:batchId}",
       "options": { "cwd": "${workspaceFolder}" },
       "problemMatcher": []
     },
     {
-      "label": "InsightHub: Rebuild ALL (_current)",
-      "dependsOn": [
-        "InsightHub: Analyze (_current)",
-        "InsightHub: Build Message Index 2025 (_current)"
-      ],
-      "dependsOrder": "sequence",
+      "label": "InsightHub: Validate Suggestions JSONL",
       "type": "shell",
-      "command": "echo done",
+      "command": "node scripts/validate_jsonl.mjs analytics/_current/triage/triage_suggestions_${input:batchId}.jsonl",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    },
+    {
+      "label": "InsightHub: Build Patch (from suggestions)",
+      "type": "shell",
+      "command": "node scripts/triage_unknowns_make_patch.mjs --suggestions analytics/_current/triage/triage_suggestions_${input:batchId}.jsonl --threads thread-vault/threads --outPatch thread-vault/patches/route_suggestions_${input:batchId}_${input:minConf}.patch --minConfidence ${input:minConf}",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    },
+    {
+      "label": "InsightHub: Apply Patch + Rebuild (_current)",
+      "type": "shell",
+      "command": "git apply --check thread-vault/patches/route_suggestions_${input:batchId}_${input:minConf}.patch && git apply thread-vault/patches/route_suggestions_${input:batchId}_${input:minConf}.patch && node apps/indexer-cli/dist/index.js analyze --out analytics/_current --emit-rollup --emit-html",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    },
+    {
+      "label": "InsightHub: Open Dashboard (_current)",
+      "type": "shell",
+      "command": "cmd.exe /c start \"\" \"C:\\\\Users\\\\ROB.BRASCO\\\\GITHUB_ON_C\\\\insight-hub\\\\analytics\\\\_current\\\\index.html\"",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    },
+    {
+      "label": "InsightHub: Zip _current report bundle (Desktop)",
+      "type": "shell",
+      "command": "zip -r /mnt/c/Users/ROB.BRASCO/Desktop/insight_current_report.zip analytics/_current && ls -lh /mnt/c/Users/ROB.BRASCO/Desktop/insight_current_report.zip",
       "options": { "cwd": "${workspaceFolder}" },
       "problemMatcher": []
     }
