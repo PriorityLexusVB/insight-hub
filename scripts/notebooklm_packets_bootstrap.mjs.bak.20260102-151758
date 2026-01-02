@@ -1,0 +1,579 @@
+#!/usr/bin/env node
+/**
+ * FULL REPLACEMENT FILE
+ * scripts/notebooklm_upload_plan.mjs
+ *
+ * Reads:
+ *  - notebooklm_packets/tables/tools.md
+ *  - notebooklm_packets/INDEX.md
+ *  - analytics/_current/chat_index.json
+ *
+ * Produces:
+ *  1) Ranked top tool packets (10–20) by frequency + load
+ *  2) Notebook structure (6–10) <= 50 sources each
+ *  3) Exact packet files per notebook
+ *  4) Missing tool keywords (unmapped tools)
+ *
+ * Optional:
+ *  --materialize <dir>  create folders for drag-drop upload
+ *  --copy               copy files rather than symlink
+ */
+
+import fs from "node:fs";
+import path from "node:path";
+import process from "node:process";
+
+function norm(s) {
+  return String(s || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+function exists(p) {
+  return fs.existsSync(p);
+}
+function readText(p) {
+  return fs.readFileSync(p, "utf8");
+}
+function writeText(p, content) {
+  fs.mkdirSync(path.dirname(p), { recursive: true });
+  fs.writeFileSync(p, content, "utf8");
+}
+
+function parseArgs(argv) {
+  const args = {
+    top: 15,
+    maxNotebooks: 8,
+    maxSources: 50,
+    out: "",
+    materialize: "",
+    copy: false,
+  };
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === "--top") args.top = Number(argv[++i]);
+    else if (a === "--max-notebooks") args.maxNotebooks = Number(argv[++i]);
+    else if (a === "--max-sources") args.maxSources = Number(argv[++i]);
+    else if (a === "--out") args.out = String(argv[++i]);
+    else if (a === "--materialize") args.materialize = String(argv[++i]);
+    else if (a === "--copy") args.copy = true;
+    else if (a === "-h" || a === "--help") {
+      console.log(`
+Usage:
+  node scripts/notebooklm_upload_plan.mjs [options]
+
+Options:
+  --top <n>              top packets (10–20) [default: 15]
+  --max-notebooks <n>    notebooks (6–10) [default: 8]
+  --max-sources <n>      sources per notebook (<=50) [default: 50]
+  --out <file.md>        write output to file
+  --materialize <dir>    create folders for NotebookLM drag-drop upload
+  --copy                 copy files instead of symlink (when materializing)
+`);
+      process.exit(0);
+    }
+  }
+  args.top = Math.max(10, Math.min(20, args.top));
+  args.maxNotebooks = Math.max(6, Math.min(10, args.maxNotebooks));
+  args.maxSources = Math.max(10, Math.min(50, args.maxSources));
+  return args;
+}
+
+function parseMarkdownTableFirst(md) {
+  const lines = md.split(/\r?\n/);
+  let start = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].trim().startsWith("|")) {
+      start = i;
+      break;
+    }
+  }
+  if (start === -1) return { headers: [], rows: [] };
+
+  const block = [];
+  for (let i = start; i < lines.length; i++) {
+    const ln = lines[i];
+    if (!ln.trim().startsWith("|")) break;
+    block.push(ln);
+  }
+  if (block.length < 2) return { headers: [], rows: [] };
+
+  const splitRow = (row) =>
+    row
+      .trim()
+      .replace(/^\|/, "")
+      .replace(/\|$/, "")
+      .split("|")
+      .map((x) => x.trim());
+
+  const headers = splitRow(block[0]);
+  const align = block[1].trim();
+  const isAlign = /^[\|\s:\-]+$/.test(align);
+  const dataRows = isAlign ? block.slice(2) : block.slice(1);
+  const rows = dataRows.filter(Boolean).map(splitRow);
+  return { headers, rows };
+}
+
+function findCol(headers, needles) {
+  for (let i = 0; i < headers.length; i++) {
+    const h = norm(headers[i]);
+    if (needles.some((n) => h.includes(n))) return i;
+  }
+  return -1;
+}
+
+function parseToolsMd(toolsMdText) {
+  const { headers, rows } = parseMarkdownTableFirst(toolsMdText);
+  if (!headers.length) throw new Error("tools.md: no markdown table found");
+
+  const toolCol = findCol(headers, ["tool", "name"]);
+  const catCol = findCol(headers, ["category", "group", "bucket", "area"]);
+  const pktCol = findCol(headers, ["packet", "file", "path", "source"]);
+  const kwCol = findCol(headers, ["keywords", "keyword", "alias", "synonym"]);
+
+  if (toolCol === -1 || pktCol === -1) {
+    throw new Error(
+      `tools.md: missing required columns. headers=${headers.join(", ")}`
+    );
+  }
+
+  const toolMap = new Map(); // tool -> {category, packets[], keywords[]}
+  const keywordToTool = new Map(); // keyword -> tool
+
+  for (const r of rows) {
+    const toolDisplay = (r[toolCol] || "").trim();
+    const tool = norm(toolDisplay);
+    if (!tool) continue;
+
+    const category = catCol !== -1 ? norm(r[catCol] || "") : "";
+    const packetCell = (r[pktCol] || "").trim();
+    const packets = packetCell
+      .split(/[,;\n]+/g)
+      .map((x) => x.trim())
+      .filter(Boolean);
+
+    const keywords =
+      kwCol !== -1
+        ? (r[kwCol] || "")
+            .split(/[,;\n]+/g)
+            .map((x) => norm(x))
+            .filter(Boolean)
+        : [];
+
+    toolMap.set(tool, { tool, toolDisplay, category, packets, keywords });
+    for (const kw of keywords)
+      if (!keywordToTool.has(kw)) keywordToTool.set(kw, tool);
+  }
+
+  return { toolMap, keywordToTool };
+}
+
+function extractPacketsFromIndex(indexText) {
+  const out = new Set();
+  const reFull = /(notebooklm_packets\/[A-Za-z0-9_\-./]+?\.md)/g;
+  const reLink = /\(([^)]+?\.md)\)/g;
+  let m;
+  while ((m = reFull.exec(indexText))) out.add(m[1].trim());
+  while ((m = reLink.exec(indexText))) {
+    const p = m[1].trim();
+    if (p.startsWith("notebooklm_packets/")) out.add(p);
+    else if (p.endsWith(".md"))
+      out.add("notebooklm_packets/" + p.replace(/^\.\//, ""));
+  }
+  return Array.from(out).sort();
+}
+
+function estimateLoad(obj) {
+  if (!obj || typeof obj !== "object") return 1;
+  const numericFields = [
+    "tokens",
+    "total_tokens",
+    "word_count",
+    "words",
+    "chars",
+    "messages",
+    "message_count",
+    "len",
+    "length",
+  ];
+  for (const k of numericFields) {
+    const v = obj[k];
+    if (typeof v === "number" && v > 0) return v;
+  }
+  const textFields = ["text", "content", "summary", "body"];
+  for (const k of textFields) {
+    const v = obj[k];
+    if (typeof v === "string" && v.length)
+      return Math.max(1, Math.floor(v.length / 4));
+  }
+  return 1;
+}
+
+function extractToolStats(chatIndexObj) {
+  // tool -> {count, load}
+  const stats = new Map();
+  function add(toolName, load) {
+    const t = norm(toolName);
+    if (!t) return;
+    const cur = stats.get(t) || { count: 0, load: 0 };
+    cur.count += 1;
+    cur.load += load;
+    stats.set(t, cur);
+  }
+
+  const threads =
+    chatIndexObj?.threads || chatIndexObj?.items || chatIndexObj?.data;
+  if (Array.isArray(threads)) {
+    for (const th of threads) {
+      const load = estimateLoad(th);
+      let tools = th.tools_used || th.toolsUsed || th.tools;
+      if (typeof tools === "string")
+        tools = tools.split(/[,;\n]+/g).map((x) => x.trim());
+      if (!Array.isArray(tools)) continue;
+      const uniq = new Set(tools.map(norm).filter(Boolean));
+      for (const t of uniq) add(t, load);
+    }
+    return stats;
+  }
+
+  // fallback walk
+  function walk(o) {
+    if (!o) return;
+    if (Array.isArray(o)) return o.forEach(walk);
+    if (typeof o !== "object") return;
+    const toolName = o.tool || o.tool_name || o.toolName;
+    if (typeof toolName === "string" && toolName.trim())
+      add(toolName, estimateLoad(o));
+    Object.values(o).forEach(walk);
+  }
+  walk(chatIndexObj);
+  return stats;
+}
+
+function scoreTools(toolStats) {
+  // score = count * (1 + log1p(avgLoad))
+  const scores = new Map();
+  for (const [tool, v] of toolStats.entries()) {
+    const count = v.count || 0;
+    const load = v.load || 0;
+    if (!count) continue;
+    const avg = load / count;
+    scores.set(tool, count * (1 + Math.log1p(Math.max(0, avg))));
+  }
+  return scores;
+}
+
+function mapToolsToPackets(toolScores, toolMap, keywordToTool) {
+  const packetScores = new Map();
+  const unmapped = new Map();
+
+  const bump = (p, s) => packetScores.set(p, (packetScores.get(p) || 0) + s);
+
+  for (const [tool, score] of toolScores.entries()) {
+    if (toolMap.has(tool)) {
+      const row = toolMap.get(tool);
+      const pkts = row.packets || [];
+      if (!pkts.length) {
+        unmapped.set(tool, "tools.md row has no packet paths");
+        continue;
+      }
+      pkts.forEach((p) => bump(p, score));
+      continue;
+    }
+    if (keywordToTool.has(tool)) {
+      const mapped = keywordToTool.get(tool);
+      const row = toolMap.get(mapped);
+      const pkts = row?.packets || [];
+      if (!pkts.length) {
+        unmapped.set(tool, `alias->tool '${mapped}' has no packets`);
+        continue;
+      }
+      pkts.forEach((p) => bump(p, score));
+      continue;
+    }
+    unmapped.set(tool, "no match in tools.md (tool or keyword)");
+  }
+  return { packetScores, unmapped };
+}
+
+function suggestVariants(tool) {
+  const t = norm(tool);
+  return Array.from(
+    new Set([
+      t,
+      t.replace(/ /g, ""),
+      t.replace(/ /g, "-"),
+      t.replace(/ /g, "_"),
+      t.replace(/-/g, " "),
+      t.replace(/_/g, " "),
+    ])
+  )
+    .filter(Boolean)
+    .sort();
+}
+
+function inferCategoryFromPath(p) {
+  const m = /^notebooklm_packets\/packets\/([^/]+)\//.exec(p);
+  return m ? norm(m[1]) : "misc";
+}
+
+function planNotebooks(allPackets, topSet, maxNotebooks, maxSources) {
+  const notebooks = [];
+
+  notebooks.push({
+    name: "NotebookLM — Index + Tables",
+    sources: [
+      "notebooklm_packets/INDEX.md",
+      "notebooklm_packets/tables/tools.md",
+    ],
+  });
+
+  const already = new Set(notebooks[0].sources);
+
+  const repoPkts = allPackets.filter((p) =>
+    p.includes("notebooklm_packets/packets/repo/")
+  );
+  if (repoPkts.length) {
+    notebooks.push({
+      name: "Insight Hub — Repo Packets",
+      sources: repoPkts.slice(0, maxSources),
+    });
+    notebooks[notebooks.length - 1].sources.forEach((p) => already.add(p));
+  }
+
+  const topPkts = allPackets.filter((p) => topSet.has(p));
+  if (topPkts.length) {
+    notebooks.push({
+      name: "Tools — Top Packets",
+      sources: topPkts.slice(0, maxSources),
+    });
+    notebooks[notebooks.length - 1].sources.forEach((p) => already.add(p));
+  }
+
+  const remaining = allPackets.filter((p) => !already.has(p));
+  const byCat = new Map();
+  for (const p of remaining) {
+    const cat = inferCategoryFromPath(p);
+    const arr = byCat.get(cat) || [];
+    arr.push(p);
+    byCat.set(cat, arr);
+  }
+
+  const cats = Array.from(byCat.entries()).sort(
+    (a, b) => b[1].length - a[1].length
+  );
+
+  for (const [cat, pkts] of cats) {
+    if (notebooks.length >= maxNotebooks) break;
+    for (let i = 0; i < pkts.length; i += maxSources) {
+      if (notebooks.length >= maxNotebooks) break;
+      const chunk = pkts.slice(i, i + maxSources);
+      const suffix =
+        pkts.length > maxSources ? ` (${Math.floor(i / maxSources) + 1})` : "";
+      notebooks.push({ name: `Packets — ${cat}${suffix}`, sources: chunk });
+    }
+  }
+
+  while (notebooks.length < 6)
+    notebooks.push({
+      name: `Extra Notebook ${notebooks.length + 1}`,
+      sources: [],
+    });
+  notebooks.forEach((n) => {
+    if (n.sources.length > maxSources)
+      n.sources = n.sources.slice(0, maxSources);
+  });
+
+  return notebooks.slice(0, maxNotebooks);
+}
+
+function safeDirName(name) {
+  return (
+    name
+      .replace(/[^\w\s\-./]/g, "")
+      .replace(/\//g, "_")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 120) || "notebook"
+  );
+}
+
+function materialize(notebooks, outDir, copyFiles) {
+  fs.mkdirSync(outDir, { recursive: true });
+  const missing = [];
+  for (const nb of notebooks) {
+    const nbDir = path.join(outDir, safeDirName(nb.name));
+    fs.mkdirSync(nbDir, { recursive: true });
+    for (const rel of nb.sources) {
+      const src = path.join(process.cwd(), rel);
+      if (!exists(src)) {
+        missing.push(rel);
+        continue;
+      }
+      let dst = path.join(nbDir, path.basename(rel));
+      if (exists(dst)) {
+        const ext = path.extname(dst);
+        const base = path.basename(dst, ext);
+        let k = 2;
+        while (exists(path.join(nbDir, `${base}__${k}${ext}`))) k++;
+        dst = path.join(nbDir, `${base}__${k}${ext}`);
+      }
+      try {
+        if (copyFiles) fs.copyFileSync(src, dst);
+        else fs.symlinkSync(src, dst);
+      } catch {
+        fs.copyFileSync(src, dst);
+      }
+    }
+  }
+  return { missing: Array.from(new Set(missing)).sort() };
+}
+
+function main() {
+  const args = parseArgs(process.argv.slice(2));
+
+  const toolsPath = path.join(
+    process.cwd(),
+    "notebooklm_packets/tables/tools.md"
+  );
+  const indexPath = path.join(process.cwd(), "notebooklm_packets/INDEX.md");
+  const chatIndexPath = path.join(
+    process.cwd(),
+    "analytics/_current/chat_index.json"
+  );
+
+  const missingInputs = [];
+  if (!exists(toolsPath))
+    missingInputs.push("notebooklm_packets/tables/tools.md");
+  if (!exists(indexPath)) missingInputs.push("notebooklm_packets/INDEX.md");
+  if (!exists(chatIndexPath))
+    missingInputs.push("analytics/_current/chat_index.json");
+  if (missingInputs.length) {
+    console.error("Missing required inputs:");
+    missingInputs.forEach((m) => console.error(`- ${m}`));
+    process.exit(2);
+  }
+
+  const toolsText = readText(toolsPath);
+  const indexText = readText(indexPath);
+  const chatIndexObj = JSON.parse(readText(chatIndexPath));
+
+  const { toolMap, keywordToTool } = parseToolsMd(toolsText);
+  const allPackets = extractPacketsFromIndex(indexText);
+
+  const toolStats = extractToolStats(chatIndexObj);
+  const toolScores = scoreTools(toolStats);
+  const { packetScores, unmapped } = mapToolsToPackets(
+    toolScores,
+    toolMap,
+    keywordToTool
+  );
+
+  for (const p of allPackets) if (!packetScores.has(p)) packetScores.set(p, 0);
+
+  const rankedPackets = Array.from(packetScores.entries()).sort(
+    (a, b) => b[1] - a[1]
+  );
+  const topPackets = rankedPackets.slice(0, args.top);
+  const topSet = new Set(topPackets.map(([p]) => p));
+
+  const notebooks = planNotebooks(
+    allPackets,
+    topSet,
+    args.maxNotebooks,
+    args.maxSources
+  );
+
+  const missingPacketFiles = allPackets.filter(
+    (p) => !exists(path.join(process.cwd(), p))
+  );
+
+  const lines = [];
+  lines.push(`# NOTEBOOKLM UPLOAD PLAN`);
+  lines.push(`Generated: ${new Date().toISOString()}`);
+  lines.push("");
+
+  lines.push(
+    `## 1) Ranked Top Tool Packets (Top ${args.top}) — frequency + load`
+  );
+  lines.push("");
+  topPackets.forEach(([p, s], idx) =>
+    lines.push(`${idx + 1}. \`${p}\` — score=${s.toFixed(2)}`)
+  );
+  lines.push("");
+
+  lines.push(
+    `## 2) Notebook Structure (max ${args.maxNotebooks} notebooks, max ${args.maxSources} sources each)`
+  );
+  lines.push("");
+  notebooks.forEach((nb) => {
+    lines.push(`### ${nb.name} (${nb.sources.length} sources)`);
+    nb.sources.forEach((src) => lines.push(`- \`${src}\``));
+    lines.push("");
+  });
+
+  lines.push(
+    `## 3) Missing tool/repo keywords to add (unmapped tokens found in chat_index.json)`
+  );
+  lines.push("");
+  const unmappedArr = Array.from(unmapped.entries()).sort((a, b) => {
+    const ac = toolStats.get(a[0])?.count || 0;
+    const bc = toolStats.get(b[0])?.count || 0;
+    return bc - ac;
+  });
+
+  if (!unmappedArr.length) {
+    lines.push(`- ✅ No unmapped tools detected.`);
+  } else {
+    unmappedArr.forEach(([tool, reason]) => {
+      const st = toolStats.get(tool) || { count: 0, load: 0 };
+      lines.push(
+        `- \`${tool}\` — count=${st.count}, load≈${Math.round(
+          st.load
+        )} — ${reason}`
+      );
+      lines.push(
+        `  - suggested aliases: ${suggestVariants(tool)
+          .map((v) => `\`${v}\``)
+          .join(", ")}`
+      );
+    });
+  }
+  lines.push("");
+
+  lines.push(`## 4) Integrity Checks`);
+  lines.push("");
+  if (!missingPacketFiles.length) {
+    lines.push(`- ✅ All packet files referenced in INDEX exist on disk.`);
+  } else {
+    lines.push(
+      `- ❌ Missing packet files referenced in INDEX (${missingPacketFiles.length}):`
+    );
+    missingPacketFiles.forEach((p) => lines.push(`  - \`${p}\``));
+  }
+  lines.push("");
+
+  const outMd = lines.join("\n") + "\n";
+  if (args.out) {
+    writeText(path.join(process.cwd(), args.out), outMd);
+    console.log(`✅ Wrote: ${args.out}`);
+  } else {
+    process.stdout.write(outMd);
+  }
+
+  if (args.materialize) {
+    const outDir = path.join(process.cwd(), args.materialize);
+    const report = materialize(notebooks, outDir, args.copy);
+    writeText(
+      path.join(outDir, "_materialize_report.json"),
+      JSON.stringify(report, null, 2) + "\n"
+    );
+    console.log(`✅ Materialized folders under: ${args.materialize}`);
+    if (report.missing.length)
+      console.log(
+        `⚠ Missing sources: ${report.missing.length} (see _materialize_report.json)`
+      );
+  }
+}
+
+main();
