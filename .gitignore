@@ -20,3 +20,8 @@ dist/
 _local_backup/
 
 
+
+# NotebookLM generated artifacts
+notebooklm_packets/
+notebooklm_upload/
+NOTEBOOKLM_UPLOAD_PLAN.md
