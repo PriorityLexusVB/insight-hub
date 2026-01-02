@@ -1,13 +1,13 @@
-# NotebookLM Bundle — Tools Engineering Data
-Generated: 2026-01-02T23:21:32.072Z
+# NotebookLM Bundle — Tools — Engineering + Data
+Generated: 2026-01-02T23:24:03.283Z
 
 ## Included sources
-- notebooklm_upload/Tools Engineering Data/github_repo_navigation_and_patching.md
-- notebooklm_upload/Tools Engineering Data/images_image_search_carousels.md
-- notebooklm_upload/Tools Engineering Data/json_jsonl_csv_cleaning_validation.md
-- notebooklm_upload/Tools Engineering Data/pdf_reading_screenshots.md
-- notebooklm_upload/Tools Engineering Data/python_data_workbench.md
-- notebooklm_upload/Tools Engineering Data/web_research_and_citations.md
+- notebooklm_packets/packets/tools/github_repo_navigation_and_patching.md
+- notebooklm_packets/packets/tools/images_image_search_carousels.md
+- notebooklm_packets/packets/tools/json_jsonl_csv_cleaning_validation.md
+- notebooklm_packets/packets/tools/pdf_reading_screenshots.md
+- notebooklm_packets/packets/tools/python_data_workbench.md
+- notebooklm_packets/packets/tools/web_research_and_citations.md
 
 ---
 

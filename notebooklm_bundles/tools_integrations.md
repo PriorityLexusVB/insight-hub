@@ -1,10 +1,10 @@
-# NotebookLM Bundle — Tools Integrations
-Generated: 2026-01-02T23:21:32.093Z
+# NotebookLM Bundle — Tools — Integrations
+Generated: 2026-01-02T23:24:03.309Z
 
 ## Included sources
-- notebooklm_upload/Tools Integrations/calendar_gcal_reader.md
-- notebooklm_upload/Tools Integrations/contacts_gcontacts_reader.md
-- notebooklm_upload/Tools Integrations/email_gmail_reader.md
+- notebooklm_packets/packets/tools/calendar_gcal_reader.md
+- notebooklm_packets/packets/tools/contacts_gcontacts_reader.md
+- notebooklm_packets/packets/tools/email_gmail_reader.md
 
 ---
 

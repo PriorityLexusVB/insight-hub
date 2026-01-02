@@ -1,13 +1,13 @@
-# NotebookLM Bundle — Insight Hub Repo Packets
-Generated: 2026-01-02T23:21:32.030Z
+# NotebookLM Bundle — Insight Hub — Repo Packets
+Generated: 2026-01-02T23:24:03.190Z
 
 ## Included sources
-- notebooklm_upload/Insight Hub Repo Packets/analytics_data_dictionary_snapshot.md
-- notebooklm_upload/Insight Hub Repo Packets/handoff_snapshot.md
-- notebooklm_upload/Insight Hub Repo Packets/readme_snapshot.md
-- notebooklm_upload/Insight Hub Repo Packets/repo_overview.md
-- notebooklm_upload/Insight Hub Repo Packets/runbook_snapshot.md
-- notebooklm_upload/Insight Hub Repo Packets/work_summary_snapshot.md
+- notebooklm_packets/packets/repo/analytics_data_dictionary_snapshot.md
+- notebooklm_packets/packets/repo/handoff_snapshot.md
+- notebooklm_packets/packets/repo/readme_snapshot.md
+- notebooklm_packets/packets/repo/repo_overview.md
+- notebooklm_packets/packets/repo/runbook_snapshot.md
+- notebooklm_packets/packets/repo/work_summary_snapshot.md
 
 ---
 

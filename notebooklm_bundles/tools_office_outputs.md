@@ -1,11 +1,11 @@
-# NotebookLM Bundle — Tools Office Outputs
-Generated: 2026-01-02T23:21:32.110Z
+# NotebookLM Bundle — Tools — Office Outputs
+Generated: 2026-01-02T23:24:03.264Z
 
 ## Included sources
-- notebooklm_upload/Tools Office Outputs/docs_word_python_docx.md
-- notebooklm_upload/Tools Office Outputs/pdf_generation_reportlab.md
-- notebooklm_upload/Tools Office Outputs/slides_powerpoint_pptxgenjs.md
-- notebooklm_upload/Tools Office Outputs/spreadsheets_excel_openpyxl.md
+- notebooklm_packets/packets/tools/docs_word_python_docx.md
+- notebooklm_packets/packets/tools/pdf_generation_reportlab.md
+- notebooklm_packets/packets/tools/slides_powerpoint_pptxgenjs.md
+- notebooklm_packets/packets/tools/spreadsheets_excel_openpyxl.md
 
 ---
 

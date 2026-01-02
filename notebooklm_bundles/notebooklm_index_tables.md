@@ -1,9 +1,9 @@
-# NotebookLM Bundle — NotebookLM Index Tables
-Generated: 2026-01-02T23:21:32.057Z
+# NotebookLM Bundle — NotebookLM — Index + Tables
+Generated: 2026-01-02T23:24:03.176Z
 
 ## Included sources
-- notebooklm_upload/NotebookLM Index Tables/INDEX.md
-- notebooklm_upload/NotebookLM Index Tables/tools.md
+- notebooklm_packets/INDEX.md
+- notebooklm_packets/tables/tools.md
 
 ---
 
