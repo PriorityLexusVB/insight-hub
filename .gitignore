@@ -25,3 +25,8 @@ _local_backup/
 notebooklm_packets/
 notebooklm_upload/
 NOTEBOOKLM_UPLOAD_PLAN.md
+
+# NotebookLM generated artifacts
+NOTEBOOKLM_UPLOAD_PLAN.md
+notebooklm_packets/
+notebooklm_upload/
