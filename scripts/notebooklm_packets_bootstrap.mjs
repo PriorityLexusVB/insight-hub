@@ -49,24 +49,26 @@ Options:
   process.exit(exitCode);
 }
 
+/**
+ * IMPORTANT: Keywords should be "strong signals" only.
+ * Avoid broad words like: document, repo, word, analysis, page, web, search.
+ */
 const TOOL_PACKETS = [
   {
     tool: "web_research",
     category: "web",
+    // Tight signals only:
     keywords: [
-      "web",
-      "browse",
-      "browsing",
-      "search",
-      "research",
-      "sources",
       "citations",
+      "citation",
       "cite",
+      "url",
+      "links",
       "verify",
       "fact check",
-      "links",
-      "url",
       "image_query",
+      "browsing",
+      "browse",
     ],
     file: "notebooklm_packets/packets/tools/web_research_and_citations.md",
     title: "Web Research + Citations",
@@ -87,15 +89,7 @@ Outputs:
   {
     tool: "pdf_reading",
     category: "pdf",
-    keywords: [
-      "pdf",
-      ".pdf",
-      "extract",
-      "table",
-      "screenshot",
-      "page",
-      "render",
-    ],
+    keywords: ["pdf", ".pdf", "screenshot", "extract", "table", "render"],
     file: "notebooklm_packets/packets/tools/pdf_reading_screenshots.md",
     title: "PDF Reading + Extraction",
     body: `
@@ -139,14 +133,8 @@ Outputs:
   {
     tool: "docs_generation",
     category: "docs",
-    keywords: [
-      "docx",
-      ".docx",
-      "word",
-      "microsoft word",
-      "python-docx",
-      "document",
-    ],
+    // REMOVE: "word", "document"
+    keywords: ["docx", ".docx", "python-docx", "microsoft word", "word doc"],
     file: "notebooklm_packets/packets/tools/docs_word_python_docx.md",
     title: "DOCX Generation (python-docx)",
     body: `
@@ -169,11 +157,11 @@ Outputs:
       "xlsx",
       ".xlsx",
       "excel",
-      "spreadsheet",
       "openpyxl",
       "workbook",
       "worksheet",
-      "pivot",
+      "pivot table",
+      "spreadsheet",
     ],
     file: "notebooklm_packets/packets/tools/spreadsheets_excel_openpyxl.md",
     title: "Spreadsheets (XLSX) Standards",
@@ -198,10 +186,9 @@ Outputs:
       "pptx",
       ".pptx",
       "powerpoint",
-      "slides",
-      "deck",
       "pptxgenjs",
-      "presentation",
+      "slide deck",
+      "presentation deck",
     ],
     file: "notebooklm_packets/packets/tools/slides_powerpoint_pptxgenjs.md",
     title: "Slides (PPTXGenJS)",
@@ -221,14 +208,8 @@ Outputs:
   {
     tool: "python_data",
     category: "python",
-    keywords: [
-      "python",
-      "pandas",
-      "dataframe",
-      "numpy",
-      "matplotlib",
-      "analysis",
-    ],
+    // REMOVE: "analysis" (too broad)
+    keywords: ["python", "pandas", "dataframe", "numpy", "matplotlib"],
     file: "notebooklm_packets/packets/tools/python_data_workbench.md",
     title: "Python Data Workbench",
     body: `
@@ -247,7 +228,15 @@ Outputs:
   {
     tool: "json_jsonl",
     category: "data",
-    keywords: ["json", "jsonl", "ndjson", "csv", "parse", "validate", "schema"],
+    keywords: [
+      "jsonl",
+      "ndjson",
+      "json",
+      "csv",
+      "validate json",
+      "parse json",
+      "schema",
+    ],
     file: "notebooklm_packets/packets/tools/json_jsonl_csv_cleaning_validation.md",
     title: "JSON/JSONL/CSV Validation",
     body: `
@@ -266,16 +255,16 @@ Outputs:
   {
     tool: "repo_patching",
     category: "github",
+    // REMOVE: "repo" (too broad) and "apply" (too broad)
     keywords: [
       "github",
       "git",
-      "repo",
-      "commit",
       "diff",
       "patch",
-      "apply",
-      "pr",
+      ".patch",
       "pull request",
+      "commit",
+      "merge conflict",
     ],
     file: "notebooklm_packets/packets/tools/github_repo_navigation_and_patching.md",
     title: "Repo Navigation + Safe Patching",
@@ -296,7 +285,7 @@ Outputs:
   {
     tool: "images",
     category: "images",
-    keywords: ["image", "images", "carousel", "photo", "photos", "visual"],
+    keywords: ["image carousel", "image_query", "photo", "photos"],
     file: "notebooklm_packets/packets/tools/images_image_search_carousels.md",
     title: "Images + Carousels",
     body: `
@@ -315,7 +304,7 @@ Outputs:
   {
     tool: "gmail_reader",
     category: "integrations",
-    keywords: ["gmail", "email", "inbox", "from:", "subject:"],
+    keywords: ["gmail", "from:", "subject:", "newer_than:", "older_than:"],
     file: "notebooklm_packets/packets/tools/email_gmail_reader.md",
     title: "Gmail Reader",
     body: `
@@ -332,7 +321,7 @@ Outputs:
   {
     tool: "gcal_reader",
     category: "integrations",
-    keywords: ["calendar", "gcal", "event", "meeting", "schedule"],
+    keywords: ["google calendar", "gcal", "calendar event", "meeting invite"],
     file: "notebooklm_packets/packets/tools/calendar_gcal_reader.md",
     title: "Google Calendar Reader",
     body: `
@@ -345,7 +334,7 @@ Outputs:
   {
     tool: "gcontacts_reader",
     category: "integrations",
-    keywords: ["contacts", "gcontacts", "address book"],
+    keywords: ["google contacts", "gcontacts", "address book"],
     file: "notebooklm_packets/packets/tools/contacts_gcontacts_reader.md",
     title: "Google Contacts Reader",
     body: `
@@ -413,9 +402,8 @@ Key generated outputs:
 
 function main() {
   const args = process.argv.slice(2);
-  if (args.includes("-h") || args.includes("--help")) usage(0);
-
   const force = args.includes("--force");
+  if (args.includes("-h") || args.includes("--help")) usage(0);
 
   if (fs.existsSync(OUT_DIR)) {
     if (!force) {
@@ -445,7 +433,6 @@ function main() {
     (t) =>
       `| ${t.tool} | ${t.category} | ${t.file} | ${t.keywords.join(", ")} |`
   ).join("\n");
-
   writeFileFull(
     toolsTablePath,
     `# Tools Table (NotebookLM Packets)\n\nGenerated: ${nowISO()}\n\n| tool | category | packet | keywords |\n|---|---|---|---|\n${rows}\n`
