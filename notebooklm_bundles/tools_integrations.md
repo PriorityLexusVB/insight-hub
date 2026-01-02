@@ -1,18 +1,21 @@
 # NotebookLM Bundle — Tools Integrations
-Generated: 2026-01-02T22:07:50.904Z
+Generated: 2026-01-02T22:11:31.691Z
 
 ## Included sources
 - notebooklm_upload/Tools Integrations/calendar_gcal_reader__2.md
 - notebooklm_upload/Tools Integrations/calendar_gcal_reader__3.md
 - notebooklm_upload/Tools Integrations/calendar_gcal_reader__4.md
+- notebooklm_upload/Tools Integrations/calendar_gcal_reader__5.md
 - notebooklm_upload/Tools Integrations/calendar_gcal_reader.md
 - notebooklm_upload/Tools Integrations/contacts_gcontacts_reader__2.md
 - notebooklm_upload/Tools Integrations/contacts_gcontacts_reader__3.md
 - notebooklm_upload/Tools Integrations/contacts_gcontacts_reader__4.md
+- notebooklm_upload/Tools Integrations/contacts_gcontacts_reader__5.md
 - notebooklm_upload/Tools Integrations/contacts_gcontacts_reader.md
 - notebooklm_upload/Tools Integrations/email_gmail_reader__2.md
 - notebooklm_upload/Tools Integrations/email_gmail_reader__3.md
 - notebooklm_upload/Tools Integrations/email_gmail_reader__4.md
+- notebooklm_upload/Tools Integrations/email_gmail_reader__5.md
 - notebooklm_upload/Tools Integrations/email_gmail_reader.md
 
 ---
@@ -50,6 +53,20 @@ Outputs:
 ---
 
 # SOURCE: calendar_gcal_reader__4.md
+
+# Google Calendar Reader
+
+Use to search and read calendar events.
+
+Outputs:
+- Schedule summary
+- Conflicts + free slots
+
+
+
+---
+
+# SOURCE: calendar_gcal_reader__5.md
 
 # Google Calendar Reader
 
@@ -116,6 +133,19 @@ Outputs:
 
 ---
 
+# SOURCE: contacts_gcontacts_reader__5.md
+
+# Google Contacts Reader
+
+Use to find contact details.
+
+Outputs:
+- Matches + best candidate
+
+
+
+---
+
 # SOURCE: contacts_gcontacts_reader.md
 
 # Google Contacts Reader
@@ -166,6 +196,24 @@ Outputs:
 ---
 
 # SOURCE: email_gmail_reader__4.md
+
+# Gmail Reader
+
+Use to search and read emails.
+
+Rules:
+- Use operators: from:, subject:, newer_than:, older_than:
+- Summarize clearly; list action items
+
+Outputs:
+- Emails found + takeaways
+- Next actions
+
+
+
+---
+
+# SOURCE: email_gmail_reader__5.md
 
 # Gmail Reader
 
