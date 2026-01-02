@@ -36,3 +36,8 @@ NOTEBOOKLM_UPLOAD_PLAN.md
 notebooklm_packets/
 notebooklm_upload/
 notebooklm_bundles/*.md.bak
+
+# NotebookLM generated artifacts
+NOTEBOOKLM_UPLOAD_PLAN.md
+notebooklm_packets/
+notebooklm_upload/
