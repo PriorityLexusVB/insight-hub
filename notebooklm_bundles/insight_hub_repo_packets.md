@@ -1,5 +1,5 @@
 # NotebookLM Bundle — Insight Hub — Repo Packets
-Generated: 2026-01-02T23:24:03.190Z
+Generated: 2026-01-02T23:24:19.586Z
 
 ## Included sources
 - notebooklm_packets/packets/repo/analytics_data_dictionary_snapshot.md
@@ -316,7 +316,7 @@ Organization map: `thread-vault/` is source memory (thread cards), `docs/` is cu
 
 # Insight Hub Repo Overview
 
-Generated: 2026-01-02T23:21:31.490Z
+Generated: 2026-01-02T23:24:19.115Z
 
 This packet set is built for NotebookLM ingestion.
 

@@ -1,5 +1,5 @@
 # NotebookLM Bundle — Tools — Top (Ranked)
-Generated: 2026-01-02T23:24:03.216Z
+Generated: 2026-01-02T23:24:19.605Z
 
 ## Included sources
 - notebooklm_packets/packets/tools/web_research_and_citations.md
