@@ -24,6 +24,8 @@ This repo produces a single “always-current” analytics dashboard + rollups, 
 - `analytics/_current/triage/triage_suggestions_<ID>.jsonl`
 - `analytics/_current/triage/unknown_queue_<ID>.json`
 
+**See [RUNBOOK_TRIAGE.md](./RUNBOOK_TRIAGE.md) for the complete hardened triage workflow.**
+
 ### Patches (safe + auditable)
 
 - `thread-vault/patches/route_suggestions_<ID>_<THRESH>.safe.patch`
@@ -58,6 +60,20 @@ export NODE_OPTIONS="--max-old-space-size=8192"
 ZIP="/mnt/h/Rob/Downloads/<YOUR_EXPORT>.zip"
 node apps/indexer-cli/dist/index.js run "$ZIP"
 LLM triage loop (only for remaining unknowns)
+**RECOMMENDED: Use the new hardened workflow:** `bash scripts/triage_run.sh --help`
+**See [RUNBOOK_TRIAGE.md](./RUNBOOK_TRIAGE.md) for complete documentation.**
+
+Quick start:
+```bash
+# Generate batch + get suggestions
+bash scripts/triage_run.sh --batch-id 001 --threshold 0.75
+# ... follow prompts to get LLM suggestions ...
+
+# Apply patch
+bash scripts/triage_run.sh --batch-id 001 --apply
+```
+
+Manual workflow (old):
 1) Generate a triage batch
 bash
 Copy code

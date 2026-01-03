@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-cd "$ROOT"
+# Source repo root assertion
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/assert_repo_root.sh"
+
+cd "$INSIGHT_HUB_ROOT"
 
 echo "==> 1) Ensure NotebookLM ignores exist"
 if [ -f scripts/ensure_gitignore_notebooklm.mjs ]; then

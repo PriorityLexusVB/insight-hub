@@ -33,6 +33,11 @@ Committed (GitHub-first):
 - `notebooklm_bundles/` (these are the NotebookLM URL sources)
 - `scripts/notebooklm_*` generators
 
+Optional temporary sources (for triage context):
+
+- `analytics/_current/triage/` (triage batches and reports)
+- See [RUNBOOK_TRIAGE.md](./RUNBOOK_TRIAGE.md) for triage workflow
+
 ---
 
 ## NotebookLM structure (recommended)
