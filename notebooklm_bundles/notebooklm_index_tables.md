@@ -1,5 +1,5 @@
 # NotebookLM Bundle — NotebookLM — Index + Tables
-Generated: 2026-01-02T23:24:19.578Z
+Generated: 2026-01-03T00:21:08.782Z
 
 ## Included sources
 - notebooklm_packets/INDEX.md
@@ -15,7 +15,7 @@ Generated: 2026-01-02T23:24:19.578Z
 
 # NotebookLM Packets Index
 
-Generated: 2026-01-02T23:24:19.143Z
+Generated: 2026-01-03T00:21:08.399Z
 
 ## Tables
 - notebooklm_packets/tables/tools.md
@@ -51,7 +51,7 @@ Generated: 2026-01-02T23:24:19.143Z
 
 # Tools Table (NotebookLM Packets)
 
-Generated: 2026-01-02T23:24:19.140Z
+Generated: 2026-01-03T00:21:08.397Z
 
 | tool | category | packet | keywords |
 |---|---|---|---|

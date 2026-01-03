@@ -1,5 +1,5 @@
 # NotebookLM Bundle — Tools — Engineering + Data
-Generated: 2026-01-02T23:24:19.658Z
+Generated: 2026-01-03T00:21:08.858Z
 
 ## Included sources
 - notebooklm_packets/packets/tools/github_repo_navigation_and_patching.md
