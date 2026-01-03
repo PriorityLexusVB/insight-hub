@@ -1,5 +1,5 @@
 # NotebookLM Bundle — Tools — Integrations
-Generated: 2026-01-03T00:21:08.877Z
+Generated: 2026-01-03T00:54:14.811Z
 
 ## Included sources
 - notebooklm_packets/packets/tools/calendar_gcal_reader.md
