@@ -15,11 +15,16 @@ function arg(name, def = null) {
   if (i === -1) return def;
   return process.argv[i + 1] ?? def;
 }
+function flag(name) {
+  return process.argv.includes(name);
+}
 
 const suggestionsPath = arg("--suggestions");
+const queuePath = arg("--queue"); // NEW: optional queue for validation
 const threadsDir = arg("--threads", "thread-vault/threads");
-const outPatch = arg("--outPatch", "thread-vault/patches/route_suggestions.patch");
+const outPatch = arg("--outPatch"); // Now required to be explicit or we compute it
 const minConf = Number(arg("--minConfidence", "0.75"));
+const forceFlag = flag("--force"); // NEW: bypass validation checks
 
 if (!suggestionsPath) {
   console.error("Missing --suggestions <file.jsonl>");
@@ -34,7 +39,35 @@ if (!fs.existsSync(threadsDir)) {
   process.exit(1);
 }
 
-fs.mkdirSync(path.dirname(outPatch), { recursive: true });
+// Determine batch ID from suggestions filename
+const batchIdMatch = suggestionsPath.match(/triage_suggestions_(\d+)/);
+const batchId = batchIdMatch ? batchIdMatch[1] : "001";
+
+// Compute default patch path with batch ID and threshold
+const defaultPatchDir = "thread-vault/patches";
+const threshStr = String(Math.round(minConf * 100)).padStart(3, "0");
+const defaultPatchName = `route_suggestions_${batchId}_${threshStr}.safe.patch`;
+const finalOutPatch = outPatch || path.join(defaultPatchDir, defaultPatchName);
+
+fs.mkdirSync(path.dirname(finalOutPatch), { recursive: true });
+
+// GUARDRAIL 1: Validate suggestions match queue if queue provided
+let queueUids = new Set();
+if (queuePath) {
+  if (!fs.existsSync(queuePath)) {
+    console.error("Queue file not found:", queuePath);
+    process.exit(1);
+  }
+  const queueData = JSON.parse(fs.readFileSync(queuePath, "utf8"));
+  const queueArray = Array.isArray(queueData)
+    ? queueData
+    : queueData.items || queueData.threads || queueData.queue || [];
+  queueUids = new Set(
+    queueArray
+      .map((x) => x.thread_uid || x.uid || x.id || null)
+      .filter(Boolean)
+  );
+}
 
 function readJsonl(p) {
   return fs
@@ -110,6 +143,32 @@ const suggestions = readJsonl(suggestionsPath)
   .filter((s) => s && s.thread_uid)
   .filter((s) => typeof s.confidence === "number" && s.confidence >= minConf);
 
+// GUARDRAIL 1 (continued): Check ok_matches
+let okMatches = 0;
+if (queueUids.size > 0) {
+  for (const s of suggestions) {
+    if (queueUids.has(s.thread_uid)) {
+      okMatches++;
+    }
+  }
+  
+  if (okMatches === 0 && !forceFlag) {
+    console.error("❌ GUARDRAIL FAILURE: ok_matches = 0");
+    console.error("");
+    console.error("Your suggestions thread_uid values do NOT match any queue thread_uid.");
+    console.error("This means the LLM may have invented IDs or you're using the wrong queue.");
+    console.error("");
+    console.error("Suggestions found:", suggestions.length);
+    console.error("Queue entries:", queueUids.size);
+    console.error("Matching IDs:", okMatches);
+    console.error("");
+    console.error("DO NOT PROCEED. Fix your suggestions file or use --force to bypass.");
+    process.exit(1);
+  }
+  
+  console.log(`✓ ID Validation: ${okMatches}/${suggestions.length} suggestions match queue`);
+}
+
 let patch = "";
 let changed = 0;
 
@@ -144,8 +203,42 @@ for (const s of suggestions) {
   patch += d + "\n";
 }
 
-fs.writeFileSync(outPatch, patch, "utf8");
-console.log("Wrote patch:", outPatch);
+// GUARDRAIL 2: Refuse to write 0-byte patches
+const patchBytes = Buffer.byteLength(patch, "utf8");
+if (patchBytes === 0 && !forceFlag) {
+  console.error("❌ GUARDRAIL FAILURE: patch is empty (0 bytes)");
+  console.error("");
+  console.error("No changes detected. This could mean:");
+  console.error("- All suggestions already applied (idempotent check passed)");
+  console.error("- Confidence threshold too high");
+  console.error("- Suggestions don't match any existing threads");
+  console.error("");
+  console.error("Refusing to write empty patch. Use --force to bypass.");
+  process.exit(1);
+}
+
+// Write patch
+fs.writeFileSync(finalOutPatch, patch, "utf8");
+
+// GUARDRAIL 4: Write patch report
+const reportPath = finalOutPatch.replace(/\.patch$/, ".report.json");
+const report = {
+  timestamp: new Date().toISOString(),
+  batch_id: batchId,
+  suggestions_file: suggestionsPath,
+  queue_file: queuePath || null,
+  suggestions_lines: suggestions.length,
+  ok_matches: queueUids.size > 0 ? okMatches : null,
+  min_confidence: minConf,
+  files_changed: changed,
+  patch_path: finalOutPatch,
+  patch_bytes: patchBytes,
+};
+fs.writeFileSync(reportPath, JSON.stringify(report, null, 2), "utf8");
+
+console.log("✅ Patch generated successfully");
+console.log("Wrote patch:", finalOutPatch);
+console.log("Wrote report:", reportPath);
 console.log("suggestions_used:", suggestions.length);
 console.log("files_changed:", changed);
-console.log("patch_bytes:", Buffer.byteLength(patch, "utf8"));
+console.log("patch_bytes:", patchBytes);
